@@ -565,96 +565,229 @@ export default function Home() {
   const hotSignals = signalLog.filter(s => s.outcome === 'pending').slice(0, 3);
 
   return (
-    <main className="min-h-screen bg-black text-white p-6 font-mono">
-      <header className="flex justify-between items-center mb-6 pb-4 border-b border-cyan-500/30">
-        <h1 className="text-3xl font-bold tracking-widest">
-          <span className="bg-gradient-to-r from-cyan-400 to-pink-500 bg-clip-text text-transparent">
-            RAUF // SIGNALS
-          </span>
-        </h1>
-        <div className="text-cyan-400 text-sm">
-          <span className="inline-block w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></span>
-          LIVE · {time}
+  return (
+    <main className="min-h-screen bg-black text-white p-4 md:p-6 font-mono overflow-x-hidden">
+      {/* ═══════════════ HEADER ═══════════════ */}
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 pb-4 border-b border-cyan-500/30 gap-3">
+        <div>
+          <h1 className="text-2xl md:text-4xl font-bold tracking-widest leading-tight">
+            <span className="bg-gradient-to-r from-cyan-400 via-pink-500 to-yellow-400 bg-clip-text text-transparent">
+              SIGNAL COMMAND CENTER
+            </span>
+          </h1>
+          <div className="text-[10px] text-gray-500 tracking-[0.3em] mt-1">RAUF // SIGNALS · v2.3</div>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 px-3 py-1.5 border border-green-400/40 bg-green-400/5 rounded">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
+            </span>
+            <span className="text-[10px] font-bold text-green-400 tracking-widest">WS CONNECTED · SPOT</span>
+          </div>
+          <div className="text-cyan-400 text-xs font-bold">{time}</div>
         </div>
       </header>
 
-      {/* Coin Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-        {COINS.map(coin => {
-          const data = coinData[coin.symbol];
-          const isUp = data && data.change >= 0;
-          const isSelected = coin.symbol === selectedSymbol;
-          return (
-            <div
-              key={coin.symbol}
-              onClick={() => setSelectedSymbol(coin.symbol)}
-              className={`p-3 rounded border bg-gray-900/50 backdrop-blur cursor-pointer transition-all hover:scale-105 ${
-                isSelected ? 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.4)]'
-                  : isUp ? 'border-green-500/30' : 'border-pink-500/30'
-              }`}
-            >
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-bold tracking-wider">{coin.display}</span>
-                {data && (
-                  <span className={`text-xs px-2 py-0.5 rounded ${
-                    isUp ? 'bg-green-500/20 text-green-400' : 'bg-pink-500/20 text-pink-400'
-                  }`}>
-                    {isUp ? '+' : ''}{data.change.toFixed(2)}%
-                  </span>
+      {/* ═══════════════ COIN SCANNER ═══════════════ */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ MARKET SCANNER</h2>
+          <div className="text-[10px] text-cyan-400 tracking-widest">10 SYMBOLS · 1 LOCKED</div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+          {COINS.map(coin => {
+            const data = coinData[coin.symbol];
+            const isUp = data && data.change >= 0;
+            const isSelected = coin.symbol === selectedSymbol;
+            return (
+              <div
+                key={coin.symbol}
+                onClick={() => setSelectedSymbol(coin.symbol)}
+                className={`relative p-3 rounded border-2 backdrop-blur cursor-pointer transition-all duration-300 hover:scale-[1.02] ${
+                  isSelected
+                    ? 'border-cyan-400 bg-cyan-400/5 shadow-[0_0_20px_rgba(34,211,238,0.4)]'
+                    : isUp
+                    ? 'border-green-500/20 bg-gray-900/40 hover:border-green-500/40'
+                    : 'border-pink-500/20 bg-gray-900/40 hover:border-pink-500/40'
+                }`}
+              >
+                {isSelected && (
+                  <div className="absolute -top-2 left-2 px-2 py-0.5 bg-cyan-400 rounded text-[8px] font-bold text-black tracking-widest">
+                    ◆ LOCKED
+                  </div>
                 )}
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-bold tracking-wider">{coin.display}</span>
+                  {data && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      isUp ? 'bg-green-500/20 text-green-400' : 'bg-pink-500/20 text-pink-400'
+                    }`}>
+                      {isUp ? '+' : ''}{data.change.toFixed(2)}%
+                    </span>
+                  )}
+                </div>
+                <div className={`text-base font-bold mb-1 transition-colors ${isUp ? 'text-green-400' : 'text-pink-400'}`}>
+                  {data ? '$' + formatPrice(data.price) : '...'}
+                </div>
+                <div className="text-[9px] text-gray-500 tracking-wider">VOL ${data ? formatVol(data.volume) : '—'}</div>
               </div>
-              <div className={`text-lg font-bold mb-1 ${isUp ? 'text-green-400' : 'text-pink-400'}`}>
-                {data ? '$' + formatPrice(data.price) : '...'}
-              </div>
-              <div className="text-[10px] text-gray-500">
-                VOL: {data ? '$' + formatVol(data.volume) : '—'}
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
-      {/* Depth + Reactor */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* DEPTH MAP - NO SCROLLBAR */}
+      {/* ═══════════════ HERO SIGNAL DISPLAY ═══════════════ */}
+      <div className={`relative mb-6 rounded-lg overflow-hidden border-2 ${
+        signal.direction === 'LONG' ? 'border-green-400/40' :
+        signal.direction === 'SHORT' ? 'border-pink-400/40' : 'border-yellow-400/40'
+      } ${signalGlow}`}>
+        <div className={`absolute inset-0 opacity-10 bg-gradient-to-br ${
+          signal.direction === 'LONG' ? 'from-green-500 to-cyan-500' :
+          signal.direction === 'SHORT' ? 'from-pink-500 to-purple-500' : 'from-yellow-500 to-orange-500'
+        }`}></div>
+        <div className="relative p-6 md:p-8">
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <div className="text-[10px] tracking-[0.3em] text-gray-400 mb-1">▸ REACTOR CORE</div>
+              <div className="text-sm text-cyan-400 font-bold">{selectedSymbol}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] text-gray-400 tracking-widest">SIGNAL ONLY</div>
+              <div className="text-[10px] text-yellow-400 tracking-widest">NO EXEC</div>
+            </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row items-center gap-6">
+            {/* MASSIVE Signal Display */}
+            <div className="flex-1 text-center md:text-left">
+              <div className={`text-6xl md:text-8xl font-black tracking-tight leading-none mb-2 ${signalColor} drop-shadow-[0_0_20px_currentColor]`}>
+                {signal.direction}
+              </div>
+              <div className="text-xs text-cyan-400 tracking-widest mt-2">
+                ▸ {signal.rationale}
+              </div>
+            </div>
+
+            {/* Confidence Circle */}
+            <div className="relative">
+              <div className={`w-36 h-36 md:w-44 md:h-44 rounded-full border-4 flex flex-col items-center justify-center backdrop-blur ${
+                signal.direction === 'LONG' ? 'border-green-400 bg-green-400/5' :
+                signal.direction === 'SHORT' ? 'border-pink-400 bg-pink-400/5' : 'border-yellow-400 bg-yellow-400/5'
+              }`}>
+                <div className="text-[10px] text-gray-500 tracking-[0.3em]">CONFIDENCE</div>
+                <div className={`text-5xl md:text-6xl font-black ${signalColor}`}>{signal.confidence}</div>
+                <div className="text-xs text-gray-500">PERCENT</div>
+                <div className="text-[10px] text-cyan-400 tracking-widest mt-1">{signal.agreement}/3 AGREE</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Visual TP Target Card */}
+          {signal.risk && signal.direction !== 'NEUTRAL' && (
+            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="border border-cyan-400/30 rounded p-3 bg-black/40">
+                <div className="text-[9px] text-gray-500 tracking-widest mb-1">▸ ENTRY</div>
+                <div className="text-lg md:text-xl font-bold text-white">{formatPrice(depth?.mid || 0)}</div>
+              </div>
+              <div className="border border-pink-400/30 rounded p-3 bg-black/40">
+                <div className="text-[9px] text-gray-500 tracking-widest mb-1">▸ STOP LOSS</div>
+                <div className="text-lg md:text-xl font-bold text-pink-400">{formatPrice(signal.risk.stopLoss)}</div>
+                <div className="text-[9px] text-pink-400/70">-{signal.risk.riskPct.toFixed(2)}%</div>
+              </div>
+              <div className="border border-green-400/30 rounded p-3 bg-black/40">
+                <div className="text-[9px] text-gray-500 tracking-widest mb-1">▸ TAKE PROFIT</div>
+                <div className="text-lg md:text-xl font-bold text-green-400">{formatPrice(signal.risk.takeProfit)}</div>
+                <div className="text-[9px] text-green-400/70">+{signal.risk.rewardPct.toFixed(2)}%</div>
+              </div>
+              <div className={`border rounded p-3 bg-black/40 ${
+                signal.risk.rr >= MIN_RR_RATIO ? 'border-yellow-400/40' : 'border-red-500/40'
+              }`}>
+                <div className="text-[9px] text-gray-500 tracking-widest mb-1">▸ R:R RATIO</div>
+                <div className={`text-lg md:text-xl font-bold ${
+                  signal.risk.rr >= MIN_RR_RATIO ? 'text-yellow-400' : 'text-red-400'
+                }`}>{signal.risk.rr.toFixed(2)}</div>
+                <div className="text-[9px] text-gray-500">MIN {MIN_RR_RATIO}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Factor Bars */}
+          <div className="mt-6 grid grid-cols-2 md:grid-cols-5 gap-2">
+            {(['obi','pressure','delta','spread','vol'] as const).map(k => {
+              const v = signal.factors[k];
+              const w = FACTOR_WEIGHTS[k] * 100;
+              const colorClass = v > 25 ? 'bg-green-400' : v < -25 ? 'bg-pink-400' : Math.abs(v) > 50 ? 'bg-cyan-400' : 'bg-yellow-400';
+              const valueColor = v > 25 ? 'text-green-400' : v < -25 ? 'text-pink-400' : 'text-yellow-400';
+              return (
+                <div key={k} className="border border-gray-800 rounded p-2 bg-black/30">
+                  <div className="flex justify-between items-baseline mb-1">
+                    <span className="text-[9px] text-gray-400 tracking-widest uppercase">{k}</span>
+                    <span className="text-[8px] text-gray-600">{w.toFixed(0)}%</span>
+                  </div>
+                  <div className="h-1.5 bg-gray-900 rounded overflow-hidden mb-1">
+                    <div
+                      className={`h-full transition-all duration-500 ease-out ${colorClass}`}
+                      style={{ width: `${Math.min(100, Math.abs(v))}%` }}
+                    ></div>
+                  </div>
+                  <div className={`text-sm font-bold ${valueColor}`}>{v > 0 ? '+' : ''}{v.toFixed(0)}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Flags / Warnings */}
+          {signal.flags.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {signal.flags.map(f => (
+                <span key={f} className="text-[9px] px-2 py-1 border border-yellow-400/40 bg-yellow-400/10 text-yellow-400 rounded tracking-widest">
+                  ⚠ {f}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ═══════════════ DEPTH PRESSURE MAP + LIQUIDITY ═══════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        {/* Depth Map */}
         <div className="border border-gray-800 rounded p-4 bg-gray-900/30">
           <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
-            <h2 className="text-sm font-bold tracking-widest text-gray-400">
-              DEPTH PRESSURE MAP · {selectedSymbol}
-            </h2>
-            <span className="text-xs text-cyan-400">TOP 20</span>
+            <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ DEPTH PRESSURE MAP</h2>
+            <span className="text-[10px] text-cyan-400 tracking-widest">TOP 20</span>
           </div>
 
           {depth ? (
             <>
-              <div className="flex justify-around mb-4 pb-3 border-b border-gray-800">
+              <div className="grid grid-cols-3 mb-4 pb-3 border-b border-gray-800">
                 <div className="text-center">
-                  <div className="text-xs text-gray-500 mb-1">BEST BID</div>
-                  <div className="text-green-400 font-bold">{formatPrice(depth.bestBid)}</div>
+                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">BEST BID</div>
+                  <div className="text-green-400 font-bold text-sm">{formatPrice(depth.bestBid)}</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-xs text-gray-500 mb-1">MID</div>
-                  <div className="text-yellow-400 font-bold">{formatPrice(depth.mid)}</div>
+                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">MID</div>
+                  <div className="text-yellow-400 font-bold text-sm">{formatPrice(depth.mid)}</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-xs text-gray-500 mb-1">BEST ASK</div>
-                  <div className="text-pink-400 font-bold">{formatPrice(depth.bestAsk)}</div>
+                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">BEST ASK</div>
+                  <div className="text-pink-400 font-bold text-sm">{formatPrice(depth.bestAsk)}</div>
                 </div>
               </div>
 
-              {/* V2.2: NO max-height, NO overflow - all 20 levels visible */}
               <div className="space-y-1">
-                {Array.from({ length: TOP_OB_LEVELS }).map((_, i) => {
+                {Array.from({ length: Math.min(15, TOP_OB_LEVELS) }).map((_, i) => {
                   const bid = depth.bids[i];
                   const ask = depth.asks[i];
                   const bidWidth = bid ? (bid.qty / maxQty) * 100 : 0;
                   const askWidth = ask ? (ask.qty / maxQty) * 100 : 0;
                   return (
                     <div key={i} className="grid grid-cols-4 gap-2 items-center text-xs">
-                      <div className="h-4 bg-gray-900 rounded relative">
+                      <div className="h-4 bg-gray-900 rounded relative overflow-hidden">
                         {bid && (
                           <div
-                            className={`absolute right-0 h-full ${
+                            className={`absolute right-0 h-full transition-all duration-300 ease-out ${
                               bid.isWhale
                                 ? 'bg-gradient-to-l from-yellow-400/60 to-transparent border-r-2 border-yellow-400'
                                 : 'bg-gradient-to-l from-green-500/40 to-transparent border-r-2 border-green-400'
@@ -667,10 +800,10 @@ export default function Home() {
                       </div>
                       <div className="text-green-400 text-center text-[10px]">{bid ? formatPrice(bid.price) : ''}</div>
                       <div className="text-pink-400 text-center text-[10px]">{ask ? formatPrice(ask.price) : ''}</div>
-                      <div className="h-4 bg-gray-900 rounded relative">
+                      <div className="h-4 bg-gray-900 rounded relative overflow-hidden">
                         {ask && (
                           <div
-                            className={`absolute left-0 h-full ${
+                            className={`absolute left-0 h-full transition-all duration-300 ease-out ${
                               ask.isWhale
                                 ? 'bg-gradient-to-r from-yellow-400/60 to-transparent border-l-2 border-yellow-400'
                                 : 'bg-gradient-to-r from-pink-500/40 to-transparent border-l-2 border-pink-400'
@@ -688,389 +821,196 @@ export default function Home() {
 
               <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-gray-800 text-xs">
                 <div className="text-center">
-                  <div className="text-gray-500 mb-1">BID NOTIONAL</div>
+                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">BID NOTIONAL</div>
                   <div className="text-green-400 font-bold">${formatVol(depth.bidNotional)}</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-gray-500 mb-1">SPREAD</div>
+                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">SPREAD</div>
                   <div className="text-cyan-400 font-bold">{depth.spreadBps.toFixed(2)} bps</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-gray-500 mb-1">ASK NOTIONAL</div>
+                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">ASK NOTIONAL</div>
                   <div className="text-pink-400 font-bold">${formatVol(depth.askNotional)}</div>
                 </div>
               </div>
             </>
           ) : (
-            <div className="text-center text-gray-500 py-8">Loading depth...</div>
+            <div className="text-center text-gray-500 py-8 text-xs tracking-widest">▸ INITIALIZING DEPTH...</div>
           )}
         </div>
 
-        {/* REACTOR CORE */}
+        {/* Liquidity Heatmap */}
         <div className="border border-gray-800 rounded p-4 bg-gray-900/30">
           <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
-            <h2 className="text-sm font-bold tracking-widest text-gray-400">
-              REACTOR CORE V2 · {selectedSymbol}
-            </h2>
-            <span className="text-xs text-yellow-400">SIGNAL ONLY · NO EXEC</span>
+            <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ LIQUIDITY HEATMAP</h2>
+            <span className="text-[10px] text-cyan-400 tracking-widest">±53 BPS · WALLS</span>
           </div>
 
-          <div className="flex flex-col items-center justify-center py-4">
-            <div className={`w-44 h-44 rounded-full border-4 flex flex-col items-center justify-center ${signalGlow} ${
-              signal.direction === 'LONG' ? 'border-green-400' :
-              signal.direction === 'SHORT' ? 'border-pink-400' : 'border-yellow-400'
-            }`}>
-              <div className={`text-3xl font-bold tracking-widest ${signalColor}`}>{signal.direction}</div>
-              <div className="text-xs text-gray-500 mt-2 tracking-wider">CONFIDENCE</div>
-              <div className="text-2xl font-bold text-white">{signal.confidence}%</div>
-              <div className="text-[10px] text-gray-500 mt-1">{signal.agreement}/3 AGREE</div>
-            </div>
-
-            <div className="mt-4 text-center text-cyan-400 text-xs tracking-wider">▸ {signal.rationale}</div>
-
-            {signal.flags.length > 0 && (
-              <div className="mt-2 flex gap-1 flex-wrap justify-center">
-                {signal.flags.map(f => (
-                  <span key={f} className="text-[9px] px-2 py-0.5 rounded border border-yellow-500/40 bg-yellow-500/10 text-yellow-300">{f}</span>
-                ))}
-              </div>
-            )}
-
-            {/* 5 Factor Bars */}
-            <div className="grid grid-cols-5 gap-2 mt-4 w-full text-[10px]">
-              {(['obi', 'pressure', 'delta', 'spread', 'vol'] as const).map(key => {
-                const val = signal.factors[key];
-                const isDir = key === 'obi' || key === 'pressure' || key === 'delta';
-                const absVal = Math.abs(val);
-                const color = isDir
-                  ? val > 0 ? 'bg-green-400' : val < 0 ? 'bg-pink-400' : 'bg-gray-600'
-                  : val > 60 ? 'bg-cyan-400' : 'bg-gray-600';
-                const w = (FACTOR_WEIGHTS as Record<string, number>)[key];
-                return (
-                  <div key={key} className="text-center">
-                    <div className="text-gray-500 uppercase mb-1">{key}</div>
-                    <div className="h-12 bg-gray-900 rounded relative flex items-end overflow-hidden">
-                      <div className={`w-full ${color} transition-all`} style={{ height: `${Math.min(100, absVal)}%` }}></div>
-                    </div>
-                    <div className={`mt-1 font-bold ${
-                      isDir ? (val > 0 ? 'text-green-400' : val < 0 ? 'text-pink-400' : 'text-gray-500') : 'text-cyan-400'
-                    }`}>
-                      {isDir ? (val > 0 ? '+' : '') + val.toFixed(0) : val.toFixed(0)}
-                    </div>
-                    <div className="text-gray-600 text-[9px]">{(w * 100).toFixed(0)}%</div>
+          {depth ? (
+            <>
+              <div className="relative h-20 bg-gray-900 rounded overflow-hidden mb-3">
+                <div className="absolute inset-0 flex">
+                  <div className="flex-1 flex flex-row-reverse">
+                    {depth.bids.slice().reverse().map((b, i) => {
+                      const intensity = Math.min(100, (b.notional / WHALE_NOTIONAL_USD) * 100);
+                      const bgColor = b.isWhale
+                        ? `rgba(250, 204, 21, ${0.3 + intensity / 200})`
+                        : `rgba(74, 222, 128, ${0.15 + intensity / 200})`;
+                      return (
+                        <div
+                          key={`b-${i}`}
+                          className="flex-1 relative transition-all duration-300"
+                          style={{ background: bgColor }}
+                          title={`${formatPrice(b.price)} · $${formatVol(b.notional)}${b.isWhale ? ' 🐋' : ''}`}
+                        >
+                          {b.isWhale && (
+                            <div className="absolute inset-0 flex items-center justify-center text-[10px]">🐋</div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-
-            {/* SL/TP/RR or fallback */}
-            {signal.risk ? (
-              <div className="grid grid-cols-4 gap-2 mt-4 w-full text-xs">
-                <div className="text-center p-2 border border-gray-800 rounded">
-                  <div className="text-gray-500 text-[9px] mb-1">ENTRY</div>
-                  <div className="text-white font-bold">{depth ? formatPrice(depth.mid) : '—'}</div>
-                </div>
-                <div className="text-center p-2 border border-pink-500/30 rounded">
-                  <div className="text-gray-500 text-[9px] mb-1">SL</div>
-                  <div className="text-pink-400 font-bold">{formatPrice(signal.risk.stopLoss)}</div>
-                  <div className="text-pink-400/60 text-[9px]">{signal.risk.riskPct.toFixed(2)}%</div>
-                </div>
-                <div className="text-center p-2 border border-green-500/30 rounded">
-                  <div className="text-gray-500 text-[9px] mb-1">TP</div>
-                  <div className="text-green-400 font-bold">{formatPrice(signal.risk.takeProfit)}</div>
-                  <div className="text-green-400/60 text-[9px]">{signal.risk.rewardPct.toFixed(2)}%</div>
-                </div>
-                <div className="text-center p-2 border border-cyan-500/30 rounded">
-                  <div className="text-gray-500 text-[9px] mb-1">RR</div>
-                  <div className="text-cyan-400 font-bold">{signal.risk.rr.toFixed(2)}</div>
-                  <div className="text-cyan-400/60 text-[9px]">RATIO</div>
+                  <div className="w-1 bg-yellow-400 z-10 shadow-[0_0_10px_rgba(250,204,21,0.8)]"></div>
+                  <div className="flex-1 flex flex-row">
+                    {depth.asks.map((a, i) => {
+                      const intensity = Math.min(100, (a.notional / WHALE_NOTIONAL_USD) * 100);
+                      const bgColor = a.isWhale
+                        ? `rgba(250, 204, 21, ${0.3 + intensity / 200})`
+                        : `rgba(244, 114, 182, ${0.15 + intensity / 200})`;
+                      return (
+                        <div
+                          key={`a-${i}`}
+                          className="flex-1 relative transition-all duration-300"
+                          style={{ background: bgColor }}
+                          title={`${formatPrice(a.price)} · $${formatVol(a.notional)}${a.isWhale ? ' 🐋' : ''}`}
+                        >
+                          {a.isWhale && (
+                            <div className="absolute inset-0 flex items-center justify-center text-[10px]">🐋</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-2 mt-4 w-full text-xs">
-                <div className="text-center p-3 border border-gray-800 rounded">
-                  <div className="text-gray-500 mb-1">ENTRY</div>
-                  <div className="text-white font-bold">{depth ? formatPrice(depth.mid) : '—'}</div>
+              <div className="flex justify-between text-[9px] text-gray-500 mb-3">
+                <span>← BIDS deeper {depth.bids[depth.bids.length-1] ? formatPrice(depth.bids[depth.bids.length-1].price) : ''}</span>
+                <span className="text-yellow-400">MID {formatPrice(depth.mid)}</span>
+                <span>{depth.asks[depth.asks.length-1] ? formatPrice(depth.asks[depth.asks.length-1].price) : ''} ASKS deeper →</span>
+              </div>
+
+              {/* Fresh Long/Short Zones */}
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <div>
+                  <div className="text-[9px] text-green-400 tracking-widest mb-1">▸ FRESH LONG ZONES</div>
+                  {liquidityZones.filter(z => z.type === 'support').slice(0, 3).map((z, i) => (
+                    <div key={i} className={`flex justify-between items-center text-[10px] px-2 py-1 mb-1 rounded ${
+                      z.strength === 'WHALE' ? 'bg-yellow-400/10 border border-yellow-400/30' :
+                      z.strength === 'STRONG' ? 'bg-green-400/10' : 'bg-green-400/5'
+                    }`}>
+                      <span className={`px-1 rounded text-[8px] tracking-widest ${
+                        z.strength === 'WHALE' ? 'bg-yellow-400 text-black' :
+                        z.strength === 'STRONG' ? 'bg-green-500 text-black' : 'bg-green-700 text-white'
+                      }`}>{z.strength}</span>
+                      <span className="text-green-400 font-bold">{formatPrice(z.price)}</span>
+                      <span className="text-cyan-400">${formatVol(z.notional)}</span>
+                    </div>
+                  ))}
+                  {liquidityZones.filter(z => z.type === 'support').length === 0 && (
+                    <div className="text-[9px] text-gray-600 px-2 py-1">No strong supports</div>
+                  )}
                 </div>
-                <div className="text-center p-3 border border-gray-800 rounded">
-                  <div className="text-gray-500 mb-1">SCORE</div>
-                  <div className={signalColor + ' font-bold'}>{signal.finalScore}</div>
-                </div>
-                <div className="text-center p-3 border border-gray-800 rounded">
-                  <div className="text-gray-500 mb-1">SPREAD</div>
-                  <div className="text-cyan-400 font-bold">{depth ? depth.spreadBps.toFixed(2) : '—'}</div>
+                <div>
+                  <div className="text-[9px] text-pink-400 tracking-widest mb-1">▸ FRESH SHORT ZONES</div>
+                  {liquidityZones.filter(z => z.type === 'resistance').slice(0, 3).map((z, i) => (
+                    <div key={i} className={`flex justify-between items-center text-[10px] px-2 py-1 mb-1 rounded ${
+                      z.strength === 'WHALE' ? 'bg-yellow-400/10 border border-yellow-400/30' :
+                      z.strength === 'STRONG' ? 'bg-pink-400/10' : 'bg-pink-400/5'
+                    }`}>
+                      <span className={`px-1 rounded text-[8px] tracking-widest ${
+                        z.strength === 'WHALE' ? 'bg-yellow-400 text-black' :
+                        z.strength === 'STRONG' ? 'bg-pink-500 text-black' : 'bg-pink-700 text-white'
+                      }`}>{z.strength}</span>
+                      <span className="text-pink-400 font-bold">{formatPrice(z.price)}</span>
+                      <span className="text-cyan-400">${formatVol(z.notional)}</span>
+                    </div>
+                  ))}
+                  {liquidityZones.filter(z => z.type === 'resistance').length === 0 && (
+                    <div className="text-[9px] text-gray-600 px-2 py-1">No strong resistances</div>
+                  )}
                 </div>
               </div>
-            )}
-
-            <div className="mt-4 text-[10px] text-yellow-400/70 text-center tracking-wider border border-yellow-400/30 rounded p-2 w-full">
-              ⚠ PERSONAL USE · NOT FINANCIAL ADVICE · BACKTEST PENDING
-            </div>
-          </div>
+            </>
+          ) : (
+            <div className="text-center text-gray-500 py-8 text-xs tracking-widest">▸ INITIALIZING HEATMAP...</div>
+          )}
         </div>
       </div>
 
-      {/* NEW: LIQUIDITY HEATMAP - full width visual */}
-      {depth && (
-        <div className="border border-gray-800 rounded p-4 bg-gray-900/30 mb-6">
-          <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
-            <h2 className="text-sm font-bold tracking-widest text-gray-400">
-              🔥 LIQUIDITY HEATMAP · {selectedSymbol}
-            </h2>
-            <span className="text-xs text-cyan-400">TOP 20 LEVELS · WALL DETECTION</span>
-          </div>
-
-          {/* Heatmap visual - bid side / mid / ask side */}
-          <div className="relative h-16 bg-gray-900 rounded overflow-hidden mb-3">
-            <div className="absolute inset-0 flex">
-              {/* Bid side (left, green) */}
-              <div className="flex-1 flex flex-row-reverse">
-                {depth.bids.slice().reverse().map((b, i) => {
-                  const intensity = Math.min(100, (b.notional / WHALE_NOTIONAL_USD) * 100);
-                  const bgColor = b.isWhale
-                    ? `rgba(250, 204, 21, ${0.3 + intensity / 200})`  // yellow whale
-                    : `rgba(74, 222, 128, ${0.15 + intensity / 200})`; // green
-                  return (
-                    <div
-                      key={`b-${i}`}
-                      className="flex-1 relative group"
-                      style={{ background: bgColor }}
-                      title={`${formatPrice(b.price)} · $${formatVol(b.notional)}${b.isWhale ? ' 🐋' : ''}`}
-                    >
-                      {b.isWhale && (
-                        <div className="absolute inset-0 flex items-center justify-center text-[10px]">🐋</div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Mid line */}
-              <div className="w-1 bg-yellow-400 z-10"></div>
-              {/* Ask side (right, pink) */}
-              <div className="flex-1 flex flex-row">
-                {depth.asks.map((a, i) => {
-                  const intensity = Math.min(100, (a.notional / WHALE_NOTIONAL_USD) * 100);
-                  const bgColor = a.isWhale
-                    ? `rgba(250, 204, 21, ${0.3 + intensity / 200})`
-                    : `rgba(244, 114, 182, ${0.15 + intensity / 200})`;
-                  return (
-                    <div
-                      key={`a-${i}`}
-                      className="flex-1 relative group"
-                      style={{ background: bgColor }}
-                      title={`${formatPrice(a.price)} · $${formatVol(a.notional)}${a.isWhale ? ' 🐋' : ''}`}
-                    >
-                      {a.isWhale && (
-                        <div className="absolute inset-0 flex items-center justify-center text-[10px]">🐋</div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-between text-[10px] text-gray-500 mb-4">
-            <span>← BIDS (deeper) {formatPrice(depth.bids[depth.bids.length - 1]?.price || 0)}</span>
-            <span className="text-yellow-400 font-bold">MID {formatPrice(depth.mid)}</span>
-            <span>{formatPrice(depth.asks[depth.asks.length - 1]?.price || 0)} (deeper) ASKS →</span>
-          </div>
-
-          {/* FRESH LONG/SHORT ENTRY ZONES */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 pt-3 border-t border-gray-800">
-            {/* LONG zones (support walls) */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-bold text-green-400 tracking-widest">📈 FRESH LONG ZONES</span>
-                <span className="text-[10px] text-gray-500">(bounce off support)</span>
-              </div>
-              {liquidityZones.longZones.length > 0 ? (
-                <div className="space-y-1">
-                  {liquidityZones.longZones.map((z, i) => (
-                    <div key={i} className={`flex justify-between items-center p-2 rounded text-xs ${
-                      z.strength === 'WHALE' ? 'bg-yellow-500/10 border border-yellow-500/30' :
-                      z.strength === 'STRONG' ? 'bg-green-500/15 border border-green-500/30' :
-                      'bg-green-500/5 border border-green-500/15'
-                    }`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${
-                          z.strength === 'WHALE' ? 'bg-yellow-500/20 text-yellow-300' :
-                          z.strength === 'STRONG' ? 'bg-green-500/20 text-green-300' :
-                          'bg-green-500/10 text-green-400'
-                        }`}>
-                          {z.strength === 'WHALE' ? '🐋 WHALE' : z.strength}
-                        </span>
-                        <span className="text-green-400 font-bold">{formatPrice(z.price)}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px]">
-                        <span className="text-gray-500">-{z.distance.toFixed(2)}%</span>
-                        <span className="text-cyan-400">${formatVol(z.notional)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-gray-500 text-xs text-center py-3 bg-gray-900/50 rounded">No support walls detected</div>
-              )}
-            </div>
-
-            {/* SHORT zones (resistance walls) */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-bold text-pink-400 tracking-widest">📉 FRESH SHORT ZONES</span>
-                <span className="text-[10px] text-gray-500">(reject at resistance)</span>
-              </div>
-              {liquidityZones.shortZones.length > 0 ? (
-                <div className="space-y-1">
-                  {liquidityZones.shortZones.map((z, i) => (
-                    <div key={i} className={`flex justify-between items-center p-2 rounded text-xs ${
-                      z.strength === 'WHALE' ? 'bg-yellow-500/10 border border-yellow-500/30' :
-                      z.strength === 'STRONG' ? 'bg-pink-500/15 border border-pink-500/30' :
-                      'bg-pink-500/5 border border-pink-500/15'
-                    }`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${
-                          z.strength === 'WHALE' ? 'bg-yellow-500/20 text-yellow-300' :
-                          z.strength === 'STRONG' ? 'bg-pink-500/20 text-pink-300' :
-                          'bg-pink-500/10 text-pink-400'
-                        }`}>
-                          {z.strength === 'WHALE' ? '🐋 WHALE' : z.strength}
-                        </span>
-                        <span className="text-pink-400 font-bold">{formatPrice(z.price)}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px]">
-                        <span className="text-gray-500">+{z.distance.toFixed(2)}%</span>
-                        <span className="text-cyan-400">${formatVol(z.notional)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-gray-500 text-xs text-center py-3 bg-gray-900/50 rounded">No resistance walls detected</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Buy/Sell Pressure */}
+      {/* ═══════════════ BUY/SELL PRESSURE ═══════════════ */}
       <div className="border border-gray-800 rounded p-4 bg-gray-900/30 mb-6">
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-xs font-bold tracking-widest text-gray-400">BUY/SELL PRESSURE · {selectedSymbol}</h3>
-          <span className={`text-xs font-bold tracking-wider ${pressureColor}`}>{pressureLabel}</span>
+          <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ BUY/SELL PRESSURE · {selectedSymbol}</h2>
+          <span className={`text-[10px] font-bold tracking-widest ${pressureColor}`}>{pressureLabel}</span>
         </div>
-        <div className="relative h-12 bg-gray-900 rounded overflow-hidden flex">
-          <div className="bg-gradient-to-r from-green-500 to-green-400 flex items-center justify-end pr-3 transition-all duration-300" style={{ width: `${bidPct}%` }}>
-            {bidPct > 15 && <span className="text-xs font-bold text-black">BIDS {bidPct.toFixed(0)}%</span>}
+        <div className="relative h-10 bg-gray-900 rounded overflow-hidden flex">
+          <div
+            className="bg-gradient-to-r from-green-500 to-green-400 flex items-center justify-end pr-3 transition-all duration-500 ease-out"
+            style={{ width: `${bidPct}%` }}
+          >
+            {bidPct > 15 && <span className="text-[10px] font-bold text-black tracking-widest">BIDS {bidPct.toFixed(0)}%</span>}
           </div>
-          <div className="bg-gradient-to-l from-pink-500 to-pink-400 flex items-center justify-start pl-3 transition-all duration-300" style={{ width: `${askPct}%` }}>
-            {askPct > 15 && <span className="text-xs font-bold text-black">ASKS {askPct.toFixed(0)}%</span>}
+          <div
+            className="bg-gradient-to-l from-pink-500 to-pink-400 flex items-center justify-start pl-3 transition-all duration-500 ease-out"
+            style={{ width: `${askPct}%` }}
+          >
+            {askPct > 15 && <span className="text-[10px] font-bold text-black tracking-widest">ASKS {askPct.toFixed(0)}%</span>}
           </div>
         </div>
-        <div className="flex justify-between mt-2 text-[10px] text-gray-500">
-          <span>BID: ${depth ? formatVol(depth.bidNotional) : '—'}</span>
-          <span>ASK: ${depth ? formatVol(depth.askNotional) : '—'}</span>
+        <div className="flex justify-between mt-2 text-[10px] text-gray-500 tracking-widest">
+          <span>BID ${depth ? formatVol(depth.bidNotional) : '—'}</span>
+          <span>ASK ${depth ? formatVol(depth.askNotional) : '—'}</span>
         </div>
       </div>
 
-      {/* Top Gainers/Losers/Hot */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="border border-green-500/30 rounded p-4 bg-gray-900/30">
-          <h3 className="text-xs font-bold tracking-widest text-green-400 mb-3">🚀 TOP GAINERS</h3>
-          <div className="space-y-2">
-            {topGainers.map(c => (
-              <div key={c.symbol} onClick={() => setSelectedSymbol(c.symbol)}
-                className="flex justify-between items-center p-2 rounded hover:bg-green-500/10 cursor-pointer transition">
-                <span className="font-bold text-sm">{c.display}</span>
-                <span className="text-green-400 text-xs font-bold">+{c.data!.change.toFixed(2)}%</span>
-              </div>
-            ))}
-            {topGainers.length === 0 && <div className="text-gray-500 text-xs text-center py-2">Loading...</div>}
-          </div>
-        </div>
-
-        <div className="border border-pink-500/30 rounded p-4 bg-gray-900/30">
-          <h3 className="text-xs font-bold tracking-widest text-pink-400 mb-3">📉 TOP LOSERS</h3>
-          <div className="space-y-2">
-            {topLosers.map(c => (
-              <div key={c.symbol} onClick={() => setSelectedSymbol(c.symbol)}
-                className="flex justify-between items-center p-2 rounded hover:bg-pink-500/10 cursor-pointer transition">
-                <span className="font-bold text-sm">{c.display}</span>
-                <span className="text-pink-400 text-xs font-bold">{c.data!.change.toFixed(2)}%</span>
-              </div>
-            ))}
-            {topLosers.length === 0 && <div className="text-gray-500 text-xs text-center py-2">Loading...</div>}
-          </div>
-        </div>
-
-        <div className="border border-cyan-500/30 rounded p-4 bg-gray-900/30">
-          <h3 className="text-xs font-bold tracking-widest text-cyan-400 mb-3">⚡ HOT SIGNALS</h3>
-          <div className="space-y-2">
-            {hotSignals.length > 0 ? hotSignals.map(s => (
-              <div key={s.id} className="flex justify-between items-center p-2 rounded bg-gray-900/50">
-                <span className="font-bold text-sm">{s.symbol.replace('USDT', '')}</span>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-bold ${s.direction === 'LONG' ? 'text-green-400' : 'text-pink-400'}`}>{s.direction}</span>
-                  <span className="text-cyan-400 text-xs">{s.confidence}%</span>
-                  <span className="text-gray-500 text-[10px]">RR {s.rr.toFixed(1)}</span>
-                </div>
-              </div>
-            )) : <div className="text-gray-500 text-xs text-center py-2">No active signals</div>}
-          </div>
-        </div>
-      </div>
-
-      {/* SIGNAL HISTORY - LAST PER USER REQUEST */}
+      {/* ═══════════════ SIGNAL HISTORY ═══════════════ */}
       <div className="border border-gray-800 rounded p-4 bg-gray-900/30 mb-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 pb-2 border-b border-gray-800 gap-2">
-          <h2 className="text-sm font-bold tracking-widest text-gray-400">📊 SIGNAL HISTORY · LIVE TRACKING</h2>
-          <div className="flex gap-4 text-xs flex-wrap">
-            <div><span className="text-gray-500">TOTAL: </span><span className="text-white font-bold">{signalLog.length}</span></div>
-            <div>
-              <span className="text-gray-500">W/L: </span>
-              <span className="text-green-400 font-bold">{wins}</span>
-              <span className="text-gray-500">/</span>
-              <span className="text-pink-400 font-bold">{losses}</span>
-            </div>
-            <div>
-              <span className="text-gray-500">WIN RATE: </span>
-              <span className={`font-bold ${winRate >= 50 ? 'text-green-400' : 'text-pink-400'}`}>
-                {resolvedSignals.length > 0 ? winRate.toFixed(1) + '%' : '—'}
-              </span>
-            </div>
-            <div>
-              <span className="text-gray-500">AVG PnL: </span>
-              <span className={`font-bold ${avgPnl >= 0 ? 'text-green-400' : 'text-pink-400'}`}>
-                {resolvedSignals.length > 0 ? (avgPnl >= 0 ? '+' : '') + avgPnl.toFixed(3) + '%' : '—'}
-              </span>
-            </div>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 pb-2 border-b border-gray-800 gap-2">
+          <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ SIGNAL HISTORY · LIVE TRACKING</h2>
+          <div className="flex gap-3 text-[10px] flex-wrap">
+            <div><span className="text-gray-500 tracking-widest">TOTAL </span><span className="text-white font-bold">{signalLog.length}</span></div>
+            <div><span className="text-gray-500 tracking-widest">W/L </span><span className="text-green-400 font-bold">{wins}</span><span className="text-gray-500">/</span><span className="text-pink-400 font-bold">{losses}</span></div>
+            <div><span className="text-gray-500 tracking-widest">WIN RATE </span><span className={`font-bold ${winRate >= 50 ? 'text-green-400' : 'text-pink-400'}`}>{resolvedSignals.length > 0 ? winRate.toFixed(1) + '%' : '—'}</span></div>
+            <div><span className="text-gray-500 tracking-widest">AVG PnL </span><span className={`font-bold ${avgPnl >= 0 ? 'text-green-400' : 'text-pink-400'}`}>{resolvedSignals.length > 0 ? (avgPnl >= 0 ? '+' : '') + avgPnl.toFixed(3) + '%' : '—'}</span></div>
           </div>
         </div>
 
         {signalLog.length > 0 ? (
-          <div className="space-y-1 text-xs">
-            <div className="grid grid-cols-7 gap-2 text-[10px] text-gray-500 border-b border-gray-800 pb-1 px-2">
+          <div className="space-y-1 text-xs max-h-80 overflow-y-auto">
+            <div className="grid grid-cols-7 gap-2 text-[9px] text-gray-500 tracking-widest border-b border-gray-800 pb-1 px-2">
               <span>TIME</span><span>COIN</span><span>SIGNAL</span><span>CONF</span><span>ENTRY</span><span>RR</span><span className="text-right">OUTCOME</span>
             </div>
             {signalLog.map(s => {
-              const ts = new Date(s.timestamp).toLocaleTimeString().slice(0, 8);
-              const isW = s.outcome === 'win';
-              const isL = s.outcome === 'loss';
-              const isP = s.outcome === 'pending';
+              const timeStr = new Date(s.timestamp).toLocaleTimeString().slice(0, 8);
+              const isWin = s.outcome === 'win';
+              const isLoss = s.outcome === 'loss';
+              const isPending = s.outcome === 'pending';
               return (
-                <div key={s.id} className={`grid grid-cols-7 gap-2 px-2 py-1 rounded items-center ${
-                  isW ? 'bg-green-500/10' : isL ? 'bg-pink-500/10' : 'bg-gray-900/50'
+                <div key={s.id} className={`grid grid-cols-7 gap-2 px-2 py-1 rounded items-center text-[10px] ${
+                  isWin ? 'bg-green-500/10' : isLoss ? 'bg-pink-500/10' : 'bg-gray-900/50'
                 }`}>
-                  <span className="text-gray-400">{ts}</span>
-                  <span className="font-bold">{s.symbol.replace('USDT', '')}</span>
+                  <span className="text-gray-400">{timeStr}</span>
+                  <span className="font-bold">{s.symbol.replace('USDT','')}</span>
                   <span className={`font-bold ${s.direction === 'LONG' ? 'text-green-400' : 'text-pink-400'}`}>{s.direction}</span>
                   <span className="text-cyan-400">{s.confidence}%</span>
                   <span className="text-gray-300">{formatPrice(s.entryPrice)}</span>
                   <span className="text-yellow-400">{s.rr.toFixed(1)}</span>
                   <span className="text-right">
-                    {isP ? <span className="text-yellow-400 text-[10px]">PENDING</span> : (
-                      <span className={`font-bold ${isW ? 'text-green-400' : 'text-pink-400'}`}>
-                        {isW ? '✓ ' : '✗ '}{(s.pnlPct! >= 0 ? '+' : '') + s.pnlPct!.toFixed(3) + '%'}
+                    {isPending ? (
+                      <span className="text-yellow-400">PENDING</span>
+                    ) : (
+                      <span className={`font-bold ${isWin ? 'text-green-400' : 'text-pink-400'}`}>
+                        {isWin ? '✓ ' : '✗ '}{(s.pnlPct! >= 0 ? '+' : '') + s.pnlPct!.toFixed(3) + '%'}
                       </span>
                     )}
                   </span>
@@ -1079,14 +1019,16 @@ export default function Home() {
             })}
           </div>
         ) : (
-          <div className="text-center text-gray-500 py-8 text-xs">
-            Waiting for high-conviction signals... (70%+ conf, RR ≥ 1.5, 5min cooldown)
+          <div className="text-center text-gray-500 py-8 text-[10px] tracking-widest">
+            ▸ WAITING FOR HIGH-CONVICTION SIGNALS · 70%+ CONF · RR ≥ 1.5 · 5MIN COOLDOWN
           </div>
         )}
       </div>
 
-      <footer className="mt-8 text-center text-xs text-gray-600 tracking-widest">
-        RAUF SIGNALS · BUILT BY ABDUL RAUF · KARACHI · v2.2.1 HEATMAP
+      {/* ═══════════════ FOOTER ═══════════════ */}
+      <footer className="mt-8 pt-4 border-t border-gray-800 text-center">
+        <div className="text-[9px] text-gray-600 tracking-[0.4em] mb-1">RAUF SIGNALS · BUILT BY ABDUL RAUF · KARACHI · v2.3 COMMAND</div>
+        <div className="text-[9px] text-yellow-400/60 tracking-widest">⚠ PERSONAL USE · NOT FINANCIAL ADVICE · BACKTEST PENDING</div>
       </footer>
     </main>
   );
