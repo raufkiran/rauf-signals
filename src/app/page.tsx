@@ -19,6 +19,7 @@ const FACTOR_WEIGHTS = { obi: 0.30, pressure: 0.25, delta: 0.20, spread: 0.10, v
 const DIRECTION_THRESHOLD = 25;
 const MIN_FACTOR_AGREEMENT = 2;
 const MIN_RR_RATIO = 1.5;
+const MIN_TP_DISTANCE_PCT = 0.15; // TP must be at least 0.15% from entry (avoids tiny TPs)
 const SIGNAL_LOG_MIN_CONFIDENCE = 70;
 const SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
 const WHALE_NOTIONAL_USD = 500_000;
@@ -126,28 +127,50 @@ function findRiskZones(direction: 'LONG' | 'SHORT', entry: number, bids: DepthLe
   if (direction === 'LONG') {
     const wall = bids.find(b => b.qty > bidAvg * 3);
     const sl = wall ? wall.price - (entry * 0.0001) : entry * 0.997;
-    let tp = asks[asks.length - 1].price;
-    for (let i = 1; i < asks.length - 1; i++) {
-      if (asks[i].qty < askAvg * 0.5 && asks[i + 1].qty < askAvg * 0.5) {
-        tp = asks[i + 1].price;
-        break;
+    const slDist = entry - sl;
+    const minTpPrice = entry + (entry * MIN_TP_DISTANCE_PCT / 100);
+    const minRrTp = entry + (slDist * MIN_RR_RATIO);
+    const targetTp = Math.max(minTpPrice, minRrTp);
+    
+    // Find ask wall (resistance) BEYOND minimum TP distance
+    let tp = targetTp; // default
+    const wallTarget = asks.find(a => a.price >= targetTp && a.qty > askAvg * 2);
+    if (wallTarget) {
+      tp = wallTarget.price - (entry * 0.0001); // just before resistance
+    } else {
+      // Find thin zones BEYOND minimum distance
+      for (let i = 1; i < asks.length - 1; i++) {
+        if (asks[i].price >= targetTp && asks[i].qty < askAvg * 0.5) {
+          tp = asks[i].price;
+          break;
+        }
       }
     }
-    if (tp === asks[asks.length - 1].price) tp = entry + (entry - sl) * 2;
+    
     const riskPct = ((entry - sl) / entry) * 100;
     const rewardPct = ((tp - entry) / entry) * 100;
     return { stopLoss: sl, takeProfit: tp, riskPct, rewardPct, rr: rewardPct / riskPct };
   } else {
     const wall = asks.find(a => a.qty > askAvg * 3);
     const sl = wall ? wall.price + (entry * 0.0001) : entry * 1.003;
-    let tp = bids[bids.length - 1].price;
-    for (let i = 1; i < bids.length - 1; i++) {
-      if (bids[i].qty < bidAvg * 0.5 && bids[i + 1].qty < bidAvg * 0.5) {
-        tp = bids[i + 1].price;
-        break;
+    const slDist = sl - entry;
+    const minTpPrice = entry - (entry * MIN_TP_DISTANCE_PCT / 100);
+    const minRrTp = entry - (slDist * MIN_RR_RATIO);
+    const targetTp = Math.min(minTpPrice, minRrTp);
+    
+    let tp = targetTp;
+    const wallTarget = bids.find(b => b.price <= targetTp && b.qty > bidAvg * 2);
+    if (wallTarget) {
+      tp = wallTarget.price + (entry * 0.0001);
+    } else {
+      for (let i = 1; i < bids.length - 1; i++) {
+        if (bids[i].price <= targetTp && bids[i].qty < bidAvg * 0.5) {
+          tp = bids[i].price;
+          break;
+        }
       }
     }
-    if (tp === bids[bids.length - 1].price) tp = entry - (sl - entry) * 2;
+    
     const riskPct = ((sl - entry) / entry) * 100;
     const rewardPct = ((entry - tp) / entry) * 100;
     return { stopLoss: sl, takeProfit: tp, riskPct, rewardPct, rr: rewardPct / riskPct };
