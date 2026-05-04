@@ -1,0 +1,175 @@
+crosoft Windows [Version 10.0.26200.8246]
+(c) Microsoft Corporation. All rights reserved.
+
+C:\Users\arauf>git --version
+git version 2.53.0.windows.2
+
+C:\Users\arauf>cd Documents\Projects\rauf-signals
+
+C:\Users\arauf\Documents\Projects\rauf-signals>C:\Users\arauf\Documents\Projects\rauf-signals>
+The syntax of the command is incorrect.
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git init
+Initialized empty Git repository in C:/Users/arauf/Documents/Projects/rauf-signals/.git/
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git add .
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'AGENTS.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'CLAUDE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'eslint.config.mjs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'next.config.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'postcss.config.mjs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/globals.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/layout.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tsconfig.json', LF will be replaced by CRLF the next time Git touches it
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git commit -m "Initial commit - Rauf Signals V2-Plus dashboard"
+Author identity unknown
+
+*** Please tell me who you are.
+
+Run
+
+  git config --global user.email "you@example.com"
+  git config --global user.name "Your Name"
+
+to set your account's default identity.
+Omit --global to set the identity only in this repository.
+
+fatal: unable to auto-detect email address (got 'arauf@DESKTOP-NOARGLR.(none)')
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git config --global user.email "arauf4212@gmail.com"
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git config --global user.name "Abdul Rauf"
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git commit -m "Initial commit - Rauf Signals V2-Plus dashboard"
+[master (root-commit) 3c94bea] Initial commit - Rauf Signals V2-Plus dashboard
+ 19 files changed, 7563 insertions(+)
+ create mode 100644 .gitignore
+ create mode 100644 AGENTS.md
+ create mode 100644 CLAUDE.md
+ create mode 100644 README.md
+ create mode 100644 eslint.config.mjs
+ create mode 100644 next.config.ts
+ create mode 100644 package-lock.json
+ create mode 100644 package.json
+ create mode 100644 postcss.config.mjs
+ create mode 100644 public/file.svg
+ create mode 100644 public/globe.svg
+ create mode 100644 public/next.svg
+ create mode 100644 public/vercel.svg
+ create mode 100644 public/window.svg
+ create mode 100644 src/app/favicon.ico
+ create mode 100644 src/app/globals.css
+ create mode 100644 src/app/layout.tsx
+ create mode 100644 src/app/page.tsx
+ create mode 100644 tsconfig.json
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git commit -m "Initial commit - Rauf Signals V2-Plus dashboard"
+On branch master
+nothing to commit, working tree clean
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git branch -M main
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git remote add origin https://github.com/raufkiran/rauf-signals.git
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git push -u origin main
+To https://github.com/raufkiran/rauf-signals.git
+ ! [rejected]        main -> main (fetch first)
+error: failed to push some refs to 'https://github.com/raufkiran/rauf-signals.git'
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally. This is usually caused by another repository pushing to
+hint: the same ref. If you want to integrate the remote changes, use
+hint: 'git pull' before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git pull origin main --allow-unrelated-histories
+remote: Enumerating objects: 3, done.
+remote: Counting objects: 100% (3/3), done.
+remote: Compressing objects: 100% (2/2), done.
+remote: Total 3 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
+Unpacking objects: 100% (3/3), 978 bytes | 163.00 KiB/s, done.
+From https://github.com/raufkiran/rauf-signals
+ * branch            main       -> FETCH_HEAD
+ * [new branch]      main       -> origin/main
+Auto-merging README.md
+CONFLICT (add/add): Merge conflict in README.md
+Automatic merge failed; fix conflicts and then commit the result.
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git checkout --ours README.md
+Updated 1 path from the index
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git add README.md
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git commit -m "Merge README - using local version"
+[main 385288c] Merge README - using local version
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git push -u origin main
+Enumerating objects: 27, done.
+Counting objects: 100% (27/27), done.
+Delta compression using up to 16 threads
+Compressing objects: 100% (23/23), done.
+Writing objects: 100% (25/25), 69.13 KiB | 11.52 MiB/s, done.
+Total 25 (delta 1), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (1/1), done.
+To https://github.com/raufkiran/rauf-signals.git
+   d39cc74..385288c  main -> main
+branch 'main' set up to track 'origin/main'.
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git add .
+warning: in the working copy of 'src/app/page.tsx', LF will be replaced by CRLF the next time Git touches it
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git commit -m "fix: stricter signal cooldown - prevents direction-flip bypass"
+[main ce7b556] fix: stricter signal cooldown - prevents direction-flip bypass
+ 1 file changed, 28 insertions(+), 37 deletions(-)
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git push
+Enumerating objects: 9, done.
+Counting objects: 100% (9/9), done.
+Delta compression using up to 16 threads
+Compressing objects: 100% (4/4), done.
+Writing objects: 100% (5/5), 1.01 KiB | 1.01 MiB/s, done.
+Total 5 (delta 3), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (3/3), completed with 3 local objects.
+To https://github.com/raufkiran/rauf-signals.git
+   385288c..ce7b556  main -> main
+
+C:\Users\arauf\Documents\Projects\rauf-signals>npm install @vercel/analytics
+
+added 1 package, and audited 363 packages in 11s
+
+142 packages are looking for funding
+  run `npm fund` for details
+
+2 moderate severity vulnerabilities
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git add .
+warning: in the working copy of 'package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/layout.tsx', LF will be replaced by CRLF the next time Git touches it
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git commit -m "feat: add Vercel Analytics tracking"
+[main ca8d61d] feat: add Vercel Analytics tracking
+ 3 files changed, 55 insertions(+), 8 deletions(-)
+
+C:\Users\arauf\Documents\Projects\rauf-signals>git push
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 16 threads
+Compressing objects: 100% (6/6), done.
+Writing objects: 100% (7/7), 1.17 KiB | 1.17 MiB/s, done.
+Total 7 (delta 5), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (5/5), completed with 5 local objects.
+To https://github.com/raufkiran/rauf-signals.git
+   ce7b556..ca8d61d  main -> main
+
+C:\Users\arauf\Documents\Projects\rauf-signals>
