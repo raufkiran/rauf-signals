@@ -15,6 +15,13 @@ const COINS = [
   { symbol: 'POLUSDT', display: 'POL' },
 ];
 
+const OBI_THRESHOLD_LONG = 40;
+const OBI_THRESHOLD_SHORT = -40;
+const NOTIONAL_RATIO_LONG = 0.65;
+const NOTIONAL_RATIO_SHORT = 0.35;
+const SIGNAL_LOG_MIN_CONFIDENCE = 80;
+const SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
+
 interface CoinData { price: number; change: number; volume: number; }
 interface DepthLevel { price: number; qty: number; }
 interface DepthData {
@@ -48,7 +55,6 @@ export default function Home() {
   const signalIdRef = useRef(0);
   const lastSignalRef = useRef<{ symbol: string; direction: string; ts: number } | null>(null);
 
-  // Ticker stream
   useEffect(() => {
     const streams = COINS.map(c => `${c.symbol.toLowerCase()}@ticker`).join('/');
     const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
@@ -75,7 +81,6 @@ export default function Home() {
     };
   }, []);
 
-  // Depth stream + Signal logging
   useEffect(() => {
     if (depthWsRef.current) depthWsRef.current.close();
 
@@ -110,28 +115,29 @@ export default function Home() {
       let confidence = 50;
       let rationale = 'BALANCED ORDER BOOK';
 
-      if (obi > 25 && notionalRatio > 0.6) {
+      if (obi > OBI_THRESHOLD_LONG && notionalRatio > NOTIONAL_RATIO_LONG) {
         direction = 'LONG';
-        confidence = Math.min(85, 50 + Math.abs(obi));
-        rationale = `BID PRESSURE · OBI +${obi.toFixed(1)}%`;
-      } else if (obi < -25 && notionalRatio < 0.4) {
+        confidence = Math.min(95, 50 + Math.abs(obi));
+        rationale = `STRONG BID PRESSURE · OBI +${obi.toFixed(1)}%`;
+      } else if (obi < OBI_THRESHOLD_SHORT && notionalRatio < NOTIONAL_RATIO_SHORT) {
         direction = 'SHORT';
-        confidence = Math.min(85, 50 + Math.abs(obi));
-        rationale = `ASK PRESSURE · OBI ${obi.toFixed(1)}%`;
+        confidence = Math.min(95, 50 + Math.abs(obi));
+        rationale = `STRONG ASK PRESSURE · OBI ${obi.toFixed(1)}%`;
       } else {
         confidence = Math.min(60, 50 + Math.abs(obi) / 2);
-        rationale = `LOW SPREAD · OBI ${obi.toFixed(1)}%`;
+        rationale = `LOW IMBALANCE · OBI ${obi.toFixed(1)}%`;
       }
 
       const finalSignal: Signal = { direction, confidence: Math.round(confidence), obi: parseFloat(obi.toFixed(1)), rationale };
       setSignal(finalSignal);
 
-      // Log signal change (only LONG/SHORT, not NEUTRAL, not duplicates within 30s)
+      // FIXED: Strict 5min cooldown for ALL signals (no direction-bypass)
       const now = Date.now();
-      if (direction !== 'NEUTRAL' && confidence >= 65) {
+      if (direction !== 'NEUTRAL' && confidence >= SIGNAL_LOG_MIN_CONFIDENCE) {
         const last = lastSignalRef.current;
-        const isNew = !last || last.symbol !== selectedSymbol || last.direction !== direction || (now - last.ts) > 30000;
-        if (isNew) {
+        const cooldownElapsed = !last || last.symbol !== selectedSymbol || (now - last.ts) > SIGNAL_COOLDOWN_MS;
+
+        if (cooldownElapsed) {
           lastSignalRef.current = { symbol: selectedSymbol, direction, ts: now };
           const newLog: SignalLog = {
             id: signalIdRef.current++,
@@ -151,13 +157,12 @@ export default function Home() {
     return () => { ws.close(); };
   }, [selectedSymbol]);
 
-  // Resolve pending signals (5 min after entry)
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
       setSignalLog(prev => prev.map(log => {
         if (log.outcome !== 'pending') return log;
-        if (now - log.timestamp < 5 * 60 * 1000) return log; // 5 min not passed
+        if (now - log.timestamp < 5 * 60 * 1000) return log;
         const currentPrice = coinData[log.symbol]?.price;
         if (!currentPrice) return log;
         const pnlPct = ((currentPrice - log.entryPrice) / log.entryPrice) * 100;
@@ -201,14 +206,12 @@ export default function Home() {
     NEUTRAL: 'shadow-[0_0_30px_rgba(250,204,21,0.5)]',
   }[signal.direction];
 
-  // Pressure Bar calculation
   const totalNotional = depth ? depth.bidNotional + depth.askNotional : 0;
   const bidPct = depth && totalNotional > 0 ? (depth.bidNotional / totalNotional) * 100 : 50;
   const askPct = 100 - bidPct;
   const pressureLabel = bidPct > 65 ? 'BULLISH PRESSURE' : bidPct < 35 ? 'BEARISH PRESSURE' : 'NEUTRAL';
   const pressureColor = bidPct > 65 ? 'text-green-400' : bidPct < 35 ? 'text-pink-400' : 'text-yellow-400';
 
-  // Top Movers
   const sortedCoins = COINS
     .map(c => ({ ...c, data: coinData[c.symbol] }))
     .filter(c => c.data);
@@ -216,7 +219,6 @@ export default function Home() {
   const topLosers = [...sortedCoins].sort((a, b) => a.data!.change - b.data!.change).slice(0, 3);
   const hotSignals = signalLog.filter(s => s.outcome === 'pending').slice(0, 3);
 
-  // Signal stats
   const resolvedSignals = signalLog.filter(s => s.outcome === 'win' || s.outcome === 'loss');
   const wins = resolvedSignals.filter(s => s.outcome === 'win').length;
   const losses = resolvedSignals.filter(s => s.outcome === 'loss').length;
@@ -227,7 +229,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-black text-white p-6 font-mono">
-      {/* Header */}
       <header className="flex justify-between items-center mb-6 pb-4 border-b border-cyan-500/30">
         <h1 className="text-3xl font-bold tracking-widest">
           <span className="bg-gradient-to-r from-cyan-400 to-pink-500 bg-clip-text text-transparent">
@@ -240,7 +241,6 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Coin Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         {COINS.map(coin => {
           const data = coinData[coin.symbol];
@@ -277,9 +277,7 @@ export default function Home() {
         })}
       </div>
 
-      {/* Depth + Reactor (V2 untouched) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* Depth Pressure Map */}
         <div className="border border-gray-800 rounded p-4 bg-gray-900/30">
           <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
             <h2 className="text-sm font-bold tracking-widest text-gray-400">
@@ -364,7 +362,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* Reactor Core */}
         <div className="border border-gray-800 rounded p-4 bg-gray-900/30">
           <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
             <h2 className="text-sm font-bold tracking-widest text-gray-400">
@@ -415,7 +412,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* === NEW: Pressure Bar === */}
       <div className="border border-gray-800 rounded p-4 bg-gray-900/30 mb-6">
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-xs font-bold tracking-widest text-gray-400">
@@ -449,11 +445,9 @@ export default function Home() {
         </div>
       </div>
 
-      {/* === NEW: Top Movers === */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        {/* Top Gainers */}
         <div className="border border-green-500/30 rounded p-4 bg-gray-900/30">
-          <h3 className="text-xs font-bold tracking-widest text-green-400 mb-3 flex items-center gap-2">
+          <h3 className="text-xs font-bold tracking-widest text-green-400 mb-3">
             🚀 TOP GAINERS
           </h3>
           <div className="space-y-2">
@@ -473,9 +467,8 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Top Losers */}
         <div className="border border-pink-500/30 rounded p-4 bg-gray-900/30">
-          <h3 className="text-xs font-bold tracking-widest text-pink-400 mb-3 flex items-center gap-2">
+          <h3 className="text-xs font-bold tracking-widest text-pink-400 mb-3">
             📉 TOP LOSERS
           </h3>
           <div className="space-y-2">
@@ -495,9 +488,8 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Hot Signals */}
         <div className="border border-cyan-500/30 rounded p-4 bg-gray-900/30">
-          <h3 className="text-xs font-bold tracking-widest text-cyan-400 mb-3 flex items-center gap-2">
+          <h3 className="text-xs font-bold tracking-widest text-cyan-400 mb-3">
             ⚡ HOT SIGNALS
           </h3>
           <div className="space-y-2">
@@ -514,19 +506,18 @@ export default function Home() {
                 </div>
               </div>
             )) : (
-              <div className="text-gray-500 text-xs text-center py-2">Waiting for signals...</div>
+              <div className="text-gray-500 text-xs text-center py-2">No active signals</div>
             )}
           </div>
         </div>
       </div>
 
-      {/* === NEW: Signal History === */}
       <div className="border border-gray-800 rounded p-4 bg-gray-900/30 mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 pb-2 border-b border-gray-800 gap-2">
           <h2 className="text-sm font-bold tracking-widest text-gray-400">
             📊 SIGNAL HISTORY · LIVE TRACKING
           </h2>
-          <div className="flex gap-4 text-xs">
+          <div className="flex gap-4 text-xs flex-wrap">
             <div>
               <span className="text-gray-500">TOTAL: </span>
               <span className="text-white font-bold">{signalLog.length}</span>
@@ -591,7 +582,7 @@ export default function Home() {
                     ) : (
                       <span className={`font-bold ${isWin ? 'text-green-400' : 'text-pink-400'}`}>
                         {isWin ? '✓ ' : '✗ '}
-                        {(s.pnlPct! >= 0 ? '+' : '') + s.pnlPct!.toFixed(3)}%
+                        {(s.pnlPct! >= 0 ? '+' : '') + s.pnlPct!.toFixed(3) + '%'}
                       </span>
                     )}
                   </span>
@@ -601,13 +592,13 @@ export default function Home() {
           </div>
         ) : (
           <div className="text-center text-gray-500 py-8 text-xs">
-            Waiting for signals... (LONG/SHORT signals with 65%+ confidence will be tracked here)
+            Waiting for high-conviction signals... (80%+ confidence, 5 min cooldown per coin)
           </div>
         )}
       </div>
 
       <footer className="mt-8 text-center text-xs text-gray-600 tracking-widest">
-        RAUF SIGNALS · BUILT BY ABDUL RAUF · KARACHI
+        RAUF SIGNALS · BUILT BY ABDUL RAUF · KARACHI · v0.6
       </footer>
     </main>
   );
