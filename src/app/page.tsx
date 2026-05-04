@@ -453,7 +453,7 @@ export default function Home() {
             takeProfit: newSignal.risk!.takeProfit,
             rr: newSignal.risk!.rr,
             timestamp: now,
-            outcome: 'pending',
+            outcome: 'pending' as const,
           }, ...prev].slice(0, 30));
         }
       }
@@ -473,7 +473,7 @@ export default function Home() {
         const pnlPct = ((cp - log.entryPrice) / log.entryPrice) * 100;
         const dm = log.direction === 'LONG' ? 1 : -1;
         const adj = pnlPct * dm;
-        return { ...log, resolvedPrice: cp, pnlPct: parseFloat(adj.toFixed(3)), outcome: adj > 0 ? 'win' : 'loss' };
+        return { ...log, resolvedPrice: cp, pnlPct: parseFloat(adj.toFixed(3)), outcome: (adj > 0 ? 'win' : 'loss') as 'win' | 'loss' };
       }));
     }, 10_000);
     return () => clearInterval(interval);
@@ -1063,7 +1063,7 @@ export default function Home() {
       </div>
 
       <footer className="mt-8 text-center text-xs text-gray-600 tracking-widest">
-        RAUF SIGNALS · BUILT BY ABDUL RAUF · KARACHI · v2.2 HEATMAP
+        RAUF SIGNALS · BUILT BY ABDUL RAUF · KARACHI · v2.2.1 HEATMAP
       </footer>
     </main>
   );
