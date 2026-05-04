@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 
 // ============================================================
-// RAUF SIGNALS V2.0 - UNIFIED SIGNAL ENGINE
-// 5 Weighted Factors: OBI 30% + Pressure 25% + Delta 20% + Spread 10% + Vol 15%
-// + Risk Engine (SL/TP/RR) + Spoof/Sweep/Whale Detection
+// RAUF SIGNALS V2.1 - PERFORMANCE OPTIMIZED
+// V2.0 unified engine + throttling + memoization
+// Fixes: aggTrade flood, double-render, DOM bloat
 // ============================================================
 
 const COINS = [
@@ -21,16 +21,19 @@ const COINS = [
   { symbol: 'POLUSDT', display: 'POL' },
 ];
 
-// V2.0 Tunable Parameters
 const FACTOR_WEIGHTS = { obi: 0.30, pressure: 0.25, delta: 0.20, spread: 0.10, vol: 0.15 };
-const DIRECTION_THRESHOLD = 25;          // Final score must exceed ±25 for LONG/SHORT
-const MIN_FACTOR_AGREEMENT = 2;          // 3 directional factors must have ≥2 agreeing
-const MIN_RR_RATIO = 1.5;                // Reject signals with RR < 1.5
-const SIGNAL_LOG_MIN_CONFIDENCE = 70;    // Lower than v0.6's 80 since confidence is now realistic
+const DIRECTION_THRESHOLD = 25;
+const MIN_FACTOR_AGREEMENT = 2;
+const MIN_RR_RATIO = 1.5;
+const SIGNAL_LOG_MIN_CONFIDENCE = 70;
 const SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
-const WHALE_NOTIONAL_USD = 500_000;      // Levels above this = whale zone
-const SPOOF_LIFETIME_MS = 2000;          // Order cancelled within 2s = spoof
-const TOP_OB_LEVELS = 20;                // V2 uses top 20 (v0.6 used 10/5)
+const WHALE_NOTIONAL_USD = 500_000;
+const TOP_OB_LEVELS = 20;
+
+// V2.1 Performance Tuning
+const SIGNAL_RECOMPUTE_MS = 500;
+const MAX_RECENT_TRADES = 500;
+const MAX_PRICE_HISTORY = 100;
 
 interface CoinData { price: number; change: number; volume: number; }
 
@@ -48,17 +51,17 @@ interface DepthData {
   bestAsk: number;
   mid: number;
   spreadBps: number;
-  bidNotional: number;       // top 20
-  askNotional: number;       // top 20
+  bidNotional: number;
+  askNotional: number;
   whaleZones: { side: 'bid' | 'ask'; price: number; notional: number }[];
 }
 
 interface FactorScores {
-  obi: number;        // -100 to +100 (directional)
-  pressure: number;   // -100 to +100 (directional)
-  delta: number;      // -100 to +100 (directional)
-  spread: number;     // 0 to 100 (quality)
-  vol: number;        // 0 to 100 (quality)
+  obi: number;
+  pressure: number;
+  delta: number;
+  spread: number;
+  vol: number;
 }
 
 interface RiskZones {
@@ -77,7 +80,7 @@ interface Signal {
   agreement: number;
   rationale: string;
   risk: RiskZones | null;
-  flags: string[];          // ['SPOOF', 'SWEEP', 'WHALE_BID', etc.]
+  flags: string[];
 }
 
 interface SignalLog {
@@ -103,10 +106,6 @@ interface TradeData {
   priceHistory: { ts: number; price: number }[];
 }
 
-// ============================================================
-// SIGNAL ENGINE - 5 Factor Calculations
-// ============================================================
-
 function calcOBI(bids: DepthLevel[], asks: DepthLevel[]): number {
   const bidNot = bids.reduce((s, b) => s + b.notional, 0);
   const askNot = asks.reduce((s, a) => s + a.notional, 0);
@@ -116,8 +115,6 @@ function calcOBI(bids: DepthLevel[], asks: DepthLevel[]): number {
 }
 
 function calcPressure(bids: DepthLevel[], asks: DepthLevel[]): number {
-  // Count-based pressure (level count weighted by qty rank)
-  // Confirms OBI - if both agree, signal is robust
   const bidWeight = bids.reduce((s, b, i) => s + b.qty * (TOP_OB_LEVELS - i), 0);
   const askWeight = asks.reduce((s, a, i) => s + a.qty * (TOP_OB_LEVELS - i), 0);
   const total = bidWeight + askWeight;
@@ -132,7 +129,6 @@ function calcDelta(trade: TradeData): number {
 }
 
 function calcSpreadScore(spreadBps: number): number {
-  // Tight spread = high quality (100), wide = low (0)
   if (spreadBps < 0.5) return 100;
   if (spreadBps < 1) return 80;
   if (spreadBps < 2) return 60;
@@ -143,19 +139,14 @@ function calcSpreadScore(spreadBps: number): number {
 
 function calcVolScore(priceHistory: { ts: number; price: number }[]): { score: number; volPct: number } {
   if (priceHistory.length < 5) return { score: 50, volPct: 0 };
-
-  // Last 60s realized volatility (Parkinson-like, simplified)
   const now = Date.now();
   const recent = priceHistory.filter(p => now - p.ts < 60_000);
   if (recent.length < 3) return { score: 50, volPct: 0 };
-
   const prices = recent.map(p => p.price);
   const high = Math.max(...prices);
   const low = Math.min(...prices);
   const mid = (high + low) / 2;
   const volPct = ((high - low) / mid) * 100;
-
-  // Low vol = clean signal (high quality), high vol = chaotic (low quality)
   let score = 50;
   if (volPct < 0.05) score = 100;
   else if (volPct < 0.1) score = 85;
@@ -163,13 +154,8 @@ function calcVolScore(priceHistory: { ts: number; price: number }[]): { score: n
   else if (volPct < 0.5) score = 50;
   else if (volPct < 1.0) score = 30;
   else score = 10;
-
   return { score, volPct };
 }
-
-// ============================================================
-// RISK ENGINE - SL/TP from liquidity zones
-// ============================================================
 
 function findRiskZones(
   direction: 'LONG' | 'SHORT',
@@ -178,16 +164,12 @@ function findRiskZones(
   asks: DepthLevel[]
 ): RiskZones | null {
   if (bids.length === 0 || asks.length === 0) return null;
-
   const bidAvg = bids.reduce((s, b) => s + b.qty, 0) / bids.length;
   const askAvg = asks.reduce((s, a) => s + a.qty, 0) / asks.length;
 
   if (direction === 'LONG') {
-    // SL: largest BID wall below entry (support breaks → exit)
     const supportWall = bids.find(b => b.qty > bidAvg * 3);
     const stopLoss = supportWall ? supportWall.price - (entry * 0.0001) : entry * 0.997;
-
-    // TP: thinnest zone in asks (liquidity gap → price flies through)
     let tpPrice = asks[asks.length - 1].price;
     for (let i = 1; i < asks.length - 1; i++) {
       if (asks[i].qty < askAvg * 0.5 && asks[i + 1].qty < askAvg * 0.5) {
@@ -195,21 +177,16 @@ function findRiskZones(
         break;
       }
     }
-    // Fallback: reach to deepest ask if no thin zone
     if (tpPrice === asks[asks.length - 1].price) {
-      tpPrice = entry + (entry - stopLoss) * 2; // 2:1 default
+      tpPrice = entry + (entry - stopLoss) * 2;
     }
-
     const riskPct = ((entry - stopLoss) / entry) * 100;
     const rewardPct = ((tpPrice - entry) / entry) * 100;
     const rr = rewardPct / riskPct;
-
     return { stopLoss, takeProfit: tpPrice, riskPct, rewardPct, rr };
   } else {
-    // SHORT: SL above entry (resistance breaks)
     const resistanceWall = asks.find(a => a.qty > askAvg * 3);
     const stopLoss = resistanceWall ? resistanceWall.price + (entry * 0.0001) : entry * 1.003;
-
     let tpPrice = bids[bids.length - 1].price;
     for (let i = 1; i < bids.length - 1; i++) {
       if (bids[i].qty < bidAvg * 0.5 && bids[i + 1].qty < bidAvg * 0.5) {
@@ -220,32 +197,22 @@ function findRiskZones(
     if (tpPrice === bids[bids.length - 1].price) {
       tpPrice = entry - (stopLoss - entry) * 2;
     }
-
     const riskPct = ((stopLoss - entry) / entry) * 100;
     const rewardPct = ((entry - tpPrice) / entry) * 100;
     const rr = rewardPct / riskPct;
-
     return { stopLoss, takeProfit: tpPrice, riskPct, rewardPct, rr };
   }
 }
 
-// ============================================================
-// DETECTION - Spoof, Sweep, Trap, Whale
-// ============================================================
-
 function detectSweep(priceHistory: { ts: number; price: number }[]): boolean {
-  // Wick > 0.3% in last 10s = potential sweep/stop-hunt
   if (priceHistory.length < 5) return false;
   const now = Date.now();
   const recent = priceHistory.filter(p => now - p.ts < 10_000);
   if (recent.length < 3) return false;
-
   const high = Math.max(...recent.map(p => p.price));
   const low = Math.min(...recent.map(p => p.price));
   const lastPrice = recent[recent.length - 1].price;
   const range = ((high - low) / lastPrice) * 100;
-
-  // Sweep: large range but price returned near middle
   if (range > 0.3) {
     const midRange = (high + low) / 2;
     if (Math.abs(lastPrice - midRange) / lastPrice < 0.001) return true;
@@ -253,25 +220,17 @@ function detectSweep(priceHistory: { ts: number; price: number }[]): boolean {
   return false;
 }
 
-// ============================================================
-// UNIFIED SIGNAL COMPUTATION
-// ============================================================
-
 function computeUnifiedSignal(
   depth: DepthData,
   trade: TradeData,
   flags: string[]
 ): Signal {
-  // 1. Calculate all 5 factors
   const obi = calcOBI(depth.bids, depth.asks);
   const pressure = calcPressure(depth.bids, depth.asks);
   const delta = calcDelta(trade);
   const spread = calcSpreadScore(depth.spreadBps);
   const { score: vol } = calcVolScore(trade.priceHistory);
 
-  const factors: FactorScores = { obi, pressure, delta, spread, vol };
-
-  // 2. Factor agreement check (3 directional factors)
   const obiSign = Math.sign(obi);
   const pressureSign = Math.sign(pressure);
   const deltaSign = Math.sign(delta);
@@ -279,7 +238,6 @@ function computeUnifiedSignal(
   let agreeingFactors = 0;
   let dominantSign = 0;
 
-  // Find dominant direction
   const longCount = [obiSign, pressureSign, deltaSign].filter(s => s > 0).length;
   const shortCount = [obiSign, pressureSign, deltaSign].filter(s => s < 0).length;
 
@@ -291,19 +249,13 @@ function computeUnifiedSignal(
     agreeingFactors = shortCount;
   }
 
-  // 3. Compute weighted directional score
   const directionalRaw = (obi * FACTOR_WEIGHTS.obi) +
                          (pressure * FACTOR_WEIGHTS.pressure) +
                          (delta * FACTOR_WEIGHTS.delta);
-  // directionalRaw range: -75 to +75
 
-  // Quality multiplier (0 to 1) - amplifies or dampens signal
   const qualityMultiplier = ((spread * FACTOR_WEIGHTS.spread) + (vol * FACTOR_WEIGHTS.vol)) / 25;
-  // qualityMultiplier range: 0 to 1
+  const finalScore = directionalRaw * Math.max(0.3, qualityMultiplier);
 
-  const finalScore = directionalRaw * Math.max(0.3, qualityMultiplier); // floor at 0.3 to avoid total kill
-
-  // 4. Direction decision
   let direction: 'LONG' | 'SHORT' | 'NEUTRAL' = 'NEUTRAL';
   let rationale = '';
 
@@ -321,26 +273,20 @@ function computeUnifiedSignal(
     rationale = `SCORE/SIGN MISMATCH · ${finalScore.toFixed(1)}`;
   }
 
-  // 5. Dynamic confidence (60-92 range)
   let confidence = 60;
   if (direction !== 'NEUTRAL') {
-    const scoreBonus = Math.min(20, (Math.abs(finalScore) / 50) * 20);  // 0-20
-    const agreementBonus = (agreeingFactors - 1) * 6;                    // 6 or 12
-    const qualityBonus = qualityMultiplier * 4;                          // 0-4
+    const scoreBonus = Math.min(20, (Math.abs(finalScore) / 50) * 20);
+    const agreementBonus = (agreeingFactors - 1) * 6;
+    const qualityBonus = qualityMultiplier * 4;
     confidence = Math.min(92, 60 + scoreBonus + agreementBonus + qualityBonus);
-
-    // Sweep detection boost - reverse signals get +5
     if (flags.includes('SWEEP')) confidence = Math.min(92, confidence + 3);
   } else {
     confidence = Math.min(55, 30 + Math.abs(finalScore) / 5);
   }
 
-  // 6. Risk zones (only if directional)
   let risk: RiskZones | null = null;
   if (direction !== 'NEUTRAL') {
     risk = findRiskZones(direction, depth.mid, depth.bids, depth.asks);
-
-    // RR filter - reject if RR < 1.5
     if (risk && risk.rr < MIN_RR_RATIO) {
       direction = 'NEUTRAL';
       rationale = `BAD RR ${risk.rr.toFixed(2)} < ${MIN_RR_RATIO}`;
@@ -367,10 +313,6 @@ function computeUnifiedSignal(
   };
 }
 
-// ============================================================
-// MAIN COMPONENT
-// ============================================================
-
 export default function Home() {
   const [coinData, setCoinData] = useState<Record<string, CoinData>>({});
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT');
@@ -378,20 +320,23 @@ export default function Home() {
   const [signal, setSignal] = useState<Signal>({
     direction: 'NEUTRAL', confidence: 50, finalScore: 0,
     factors: { obi: 0, pressure: 0, delta: 0, spread: 0, vol: 0 },
-    agreement: 0, rationale: 'Initializing V2 engine...', risk: null, flags: [],
+    agreement: 0, rationale: 'Initializing V2.1 engine...', risk: null, flags: [],
   });
   const [time, setTime] = useState('');
   const [signalLog, setSignalLog] = useState<SignalLog[]>([]);
 
-  const depthWsRef = useRef<WebSocket | null>(null);
-  const tradeWsRef = useRef<WebSocket | null>(null);
+  // V2.1: Refs hold latest data; state updates throttled
+  const depthRef = useRef<DepthData | null>(null);
   const tradeDataRef = useRef<TradeData>({
     buyVol: 0, sellVol: 0, recentTrades: [], lastPrice: 0, priceHistory: [],
   });
+
+  const depthWsRef = useRef<WebSocket | null>(null);
+  const tradeWsRef = useRef<WebSocket | null>(null);
   const signalIdRef = useRef(0);
   const lastSignalRef = useRef<{ symbol: string; direction: string; ts: number } | null>(null);
 
-  // ----- Tickers WebSocket (all 10 coins) -----
+  // Tickers WebSocket
   useEffect(() => {
     const streams = COINS.map(c => `${c.symbol.toLowerCase()}@ticker`).join('/');
     const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
@@ -414,17 +359,16 @@ export default function Home() {
     return () => { ws.close(); clearInterval(timer); };
   }, []);
 
-  // ----- Depth + Trade WebSockets (selected symbol) -----
+  // Depth + Trade WebSockets - data goes to REFS, not state
   useEffect(() => {
     if (depthWsRef.current) depthWsRef.current.close();
     if (tradeWsRef.current) tradeWsRef.current.close();
 
-    // Reset trade data for new symbol
     tradeDataRef.current = {
       buyVol: 0, sellVol: 0, recentTrades: [], lastPrice: 0, priceHistory: [],
     };
+    depthRef.current = null;
 
-    // 1. Depth stream (top 20 levels)
     const depthWs = new WebSocket(
       `wss://stream.binance.com:9443/ws/${selectedSymbol.toLowerCase()}@depth20@100ms`
     );
@@ -459,28 +403,78 @@ export default function Home() {
         ...asks.filter(a => a.isWhale).map(a => ({ side: 'ask' as const, price: a.price, notional: a.notional })),
       ];
 
-      const depthData: DepthData = {
+      depthRef.current = {
         bids, asks, bestBid, bestAsk, mid, spreadBps, bidNotional, askNotional, whaleZones,
       };
-      setDepth(depthData);
 
-      // Update price history
       const trade = tradeDataRef.current;
       trade.priceHistory.push({ ts: Date.now(), price: mid });
-      // Keep only last 90s
-      const cutoff = Date.now() - 90_000;
-      trade.priceHistory = trade.priceHistory.filter(p => p.ts > cutoff);
+      if (trade.priceHistory.length > MAX_PRICE_HISTORY) {
+        trade.priceHistory.splice(0, trade.priceHistory.length - MAX_PRICE_HISTORY);
+      }
+    };
+    depthWsRef.current = depthWs;
 
-      // Compute unified signal
+    const tradeWs = new WebSocket(
+      `wss://stream.binance.com:9443/ws/${selectedSymbol.toLowerCase()}@aggTrade`
+    );
+
+    tradeWs.onmessage = (event) => {
+      const t = JSON.parse(event.data);
+      const ts = t.T;
+      const price = parseFloat(t.p);
+      const qty = parseFloat(t.q);
+      const isBuyer = !t.m;
+      const notional = price * qty;
+
+      const trade = tradeDataRef.current;
+      trade.recentTrades.push({ ts, price, qty: notional, isBuyer });
+      trade.lastPrice = price;
+
+      // Hard cap on buffer size
+      if (trade.recentTrades.length > MAX_RECENT_TRADES) {
+        const cutoff = Date.now() - 60_000;
+        trade.recentTrades = trade.recentTrades.filter(tr => tr.ts > cutoff);
+      }
+
+      // Recompute volumes
+      let buyVol = 0;
+      let sellVol = 0;
+      for (const tr of trade.recentTrades) {
+        if (tr.isBuyer) buyVol += tr.qty;
+        else sellVol += tr.qty;
+      }
+      trade.buyVol = buyVol;
+      trade.sellVol = sellVol;
+    };
+    tradeWsRef.current = tradeWs;
+
+    return () => {
+      depthWs.close();
+      tradeWs.close();
+    };
+  }, [selectedSymbol]);
+
+  // V2.1: Throttled signal computation - 500ms instead of 100ms
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const currentDepth = depthRef.current;
+      if (!currentDepth) return;
+      const trade = tradeDataRef.current;
+
+      const cutoff = Date.now() - 60_000;
+      trade.recentTrades = trade.recentTrades.filter(tr => tr.ts > cutoff);
+
       const flags: string[] = [];
-      if (whaleZones.some(w => w.side === 'bid')) flags.push('WHALE_BID');
-      if (whaleZones.some(w => w.side === 'ask')) flags.push('WHALE_ASK');
+      if (currentDepth.whaleZones.some(w => w.side === 'bid')) flags.push('WHALE_BID');
+      if (currentDepth.whaleZones.some(w => w.side === 'ask')) flags.push('WHALE_ASK');
       if (detectSweep(trade.priceHistory)) flags.push('SWEEP');
 
-      const newSignal = computeUnifiedSignal(depthData, trade, flags);
+      const newSignal = computeUnifiedSignal(currentDepth, trade, flags);
+
+      setDepth(currentDepth);
       setSignal(newSignal);
 
-      // Log signal if criteria met
       const now = Date.now();
       if (newSignal.direction !== 'NEUTRAL' &&
           newSignal.confidence >= SIGNAL_LOG_MIN_CONFIDENCE &&
@@ -495,7 +489,7 @@ export default function Home() {
             symbol: selectedSymbol,
             direction: newSignal.direction,
             confidence: newSignal.confidence,
-            entryPrice: mid,
+            entryPrice: currentDepth.mid,
             stopLoss: newSignal.risk.stopLoss,
             takeProfit: newSignal.risk.takeProfit,
             rr: newSignal.risk.rr,
@@ -505,44 +499,12 @@ export default function Home() {
           setSignalLog(prev => [newLog, ...prev].slice(0, 30));
         }
       }
-    };
-    depthWsRef.current = depthWs;
+    }, SIGNAL_RECOMPUTE_MS);
 
-    // 2. Trade stream (taker buy/sell delta)
-    const tradeWs = new WebSocket(
-      `wss://stream.binance.com:9443/ws/${selectedSymbol.toLowerCase()}@aggTrade`
-    );
-
-    tradeWs.onmessage = (event) => {
-      const t = JSON.parse(event.data);
-      const ts = t.T;
-      const price = parseFloat(t.p);
-      const qty = parseFloat(t.q);
-      // m=true means buyer is market maker → trade was a SELL (taker sold)
-      const isBuyer = !t.m;
-      const notional = price * qty;
-
-      const trade = tradeDataRef.current;
-      trade.recentTrades.push({ ts, price, qty: notional, isBuyer });
-      trade.lastPrice = price;
-
-      // Keep only last 60s of trades
-      const cutoff = Date.now() - 60_000;
-      trade.recentTrades = trade.recentTrades.filter(tr => tr.ts > cutoff);
-
-      // Recompute volumes
-      trade.buyVol = trade.recentTrades.filter(tr => tr.isBuyer).reduce((s, tr) => s + tr.qty, 0);
-      trade.sellVol = trade.recentTrades.filter(tr => !tr.isBuyer).reduce((s, tr) => s + tr.qty, 0);
-    };
-    tradeWsRef.current = tradeWs;
-
-    return () => {
-      depthWs.close();
-      tradeWs.close();
-    };
+    return () => clearInterval(interval);
   }, [selectedSymbol]);
 
-  // ----- W/L Resolution -----
+  // W/L Resolution
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -561,11 +523,10 @@ export default function Home() {
           outcome: adjustedPnl > 0 ? 'win' : 'loss',
         };
       }));
-    }, 5000);
+    }, 10_000);
     return () => clearInterval(interval);
   }, [coinData]);
 
-  // ===== Formatters =====
   const formatPrice = (p: number) => {
     if (p >= 1000) return p.toLocaleString('en-US', { maximumFractionDigits: 2 });
     if (p >= 1) return p.toFixed(4);
@@ -579,8 +540,31 @@ export default function Home() {
     return v.toFixed(0);
   };
 
-  // ===== Derived UI values =====
-  const maxQty = depth ? Math.max(...depth.bids.map(b => b.qty), ...depth.asks.map(a => a.qty)) : 1;
+  const maxQty = useMemo(() =>
+    depth ? Math.max(...depth.bids.map(b => b.qty), ...depth.asks.map(a => a.qty)) : 1,
+    [depth]
+  );
+
+  const { topGainers, topLosers } = useMemo(() => {
+    const sorted = COINS.map(c => ({ ...c, data: coinData[c.symbol] })).filter(c => c.data);
+    return {
+      topGainers: [...sorted].sort((a, b) => b.data!.change - a.data!.change).slice(0, 3),
+      topLosers: [...sorted].sort((a, b) => a.data!.change - b.data!.change).slice(0, 3),
+    };
+  }, [coinData]);
+
+  const { wins, losses, winRate, avgPnl, resolvedSignals } = useMemo(() => {
+    const resolved = signalLog.filter(s => s.outcome === 'win' || s.outcome === 'loss');
+    const w = resolved.filter(s => s.outcome === 'win').length;
+    const l = resolved.filter(s => s.outcome === 'loss').length;
+    return {
+      resolvedSignals: resolved,
+      wins: w,
+      losses: l,
+      winRate: resolved.length > 0 ? (w / resolved.length) * 100 : 0,
+      avgPnl: resolved.length > 0 ? resolved.reduce((s, x) => s + (x.pnlPct || 0), 0) / resolved.length : 0,
+    };
+  }, [signalLog]);
 
   const signalColor = {
     LONG: 'text-green-400',
@@ -600,20 +584,7 @@ export default function Home() {
   const pressureLabel = bidPct > 65 ? 'BULLISH PRESSURE' : bidPct < 35 ? 'BEARISH PRESSURE' : 'NEUTRAL';
   const pressureColor = bidPct > 65 ? 'text-green-400' : bidPct < 35 ? 'text-pink-400' : 'text-yellow-400';
 
-  const sortedCoins = COINS
-    .map(c => ({ ...c, data: coinData[c.symbol] }))
-    .filter(c => c.data);
-  const topGainers = [...sortedCoins].sort((a, b) => b.data!.change - a.data!.change).slice(0, 3);
-  const topLosers = [...sortedCoins].sort((a, b) => a.data!.change - b.data!.change).slice(0, 3);
   const hotSignals = signalLog.filter(s => s.outcome === 'pending').slice(0, 3);
-
-  const resolvedSignals = signalLog.filter(s => s.outcome === 'win' || s.outcome === 'loss');
-  const wins = resolvedSignals.filter(s => s.outcome === 'win').length;
-  const losses = resolvedSignals.filter(s => s.outcome === 'loss').length;
-  const winRate = resolvedSignals.length > 0 ? (wins / resolvedSignals.length) * 100 : 0;
-  const avgPnl = resolvedSignals.length > 0
-    ? resolvedSignals.reduce((s, x) => s + (x.pnlPct || 0), 0) / resolvedSignals.length
-    : 0;
 
   return (
     <main className="min-h-screen bg-black text-white p-6 font-mono">
@@ -629,7 +600,6 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Coin Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         {COINS.map(coin => {
           const data = coinData[coin.symbol];
@@ -666,9 +636,7 @@ export default function Home() {
         })}
       </div>
 
-      {/* Depth Map + Reactor Core */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* DEPTH */}
         <div className="border border-gray-800 rounded p-4 bg-gray-900/30">
           <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
             <h2 className="text-sm font-bold tracking-widest text-gray-400">
@@ -761,7 +729,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* REACTOR CORE V2 */}
         <div className="border border-gray-800 rounded p-4 bg-gray-900/30">
           <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
             <h2 className="text-sm font-bold tracking-widest text-gray-400">
@@ -787,7 +754,6 @@ export default function Home() {
               ▸ {signal.rationale}
             </div>
 
-            {/* Flags */}
             {signal.flags.length > 0 && (
               <div className="mt-2 flex gap-1 flex-wrap justify-center">
                 {signal.flags.map(f => (
@@ -798,7 +764,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* 5 Factor Bars */}
             <div className="grid grid-cols-5 gap-2 mt-4 w-full text-[10px]">
               {(['obi', 'pressure', 'delta', 'spread', 'vol'] as const).map(key => {
                 const val = signal.factors[key];
@@ -828,7 +793,6 @@ export default function Home() {
               })}
             </div>
 
-            {/* Risk Zones */}
             {signal.risk ? (
               <div className="grid grid-cols-4 gap-2 mt-4 w-full text-xs">
                 <div className="text-center p-2 border border-gray-800 rounded">
@@ -875,7 +839,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Buy/Sell Pressure Bar */}
       <div className="border border-gray-800 rounded p-4 bg-gray-900/30 mb-6">
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-xs font-bold tracking-widest text-gray-400">
@@ -909,7 +872,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Top Gainers / Losers / Hot Signals */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="border border-green-500/30 rounded p-4 bg-gray-900/30">
           <h3 className="text-xs font-bold tracking-widest text-green-400 mb-3">
@@ -978,7 +940,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Signal History */}
       <div className="border border-gray-800 rounded p-4 bg-gray-900/30 mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 pb-2 border-b border-gray-800 gap-2">
           <h2 className="text-sm font-bold tracking-widest text-gray-400">
@@ -1067,7 +1028,7 @@ export default function Home() {
       </div>
 
       <footer className="mt-8 text-center text-xs text-gray-600 tracking-widest">
-        RAUF SIGNALS · BUILT BY ABDUL RAUF · KARACHI · v2.0 UNIFIED ENGINE
+        RAUF SIGNALS · BUILT BY ABDUL RAUF · KARACHI · v2.1 OPTIMIZED
       </footer>
     </main>
   );
