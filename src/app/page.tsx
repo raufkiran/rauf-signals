@@ -902,7 +902,7 @@ export default function Home() {
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <div>
                   <div className="text-[9px] text-green-400 tracking-widest mb-1">▸ FRESH LONG ZONES</div>
-                  {liquidityZones.filter(z => z.type === 'support').slice(0, 3).map((z, i) => (
+                  {liquidityZones.longZones.slice(0, 3).map((z, i) => (
                     <div key={i} className={`flex justify-between items-center text-[10px] px-2 py-1 mb-1 rounded ${
                       z.strength === 'WHALE' ? 'bg-yellow-400/10 border border-yellow-400/30' :
                       z.strength === 'STRONG' ? 'bg-green-400/10' : 'bg-green-400/5'
@@ -915,13 +915,13 @@ export default function Home() {
                       <span className="text-cyan-400">${formatVol(z.notional)}</span>
                     </div>
                   ))}
-                  {liquidityZones.filter(z => z.type === 'support').length === 0 && (
+                  {liquidityZones.longZones.length === 0 && (
                     <div className="text-[9px] text-gray-600 px-2 py-1">No strong supports</div>
                   )}
                 </div>
                 <div>
                   <div className="text-[9px] text-pink-400 tracking-widest mb-1">▸ FRESH SHORT ZONES</div>
-                  {liquidityZones.filter(z => z.type === 'resistance').slice(0, 3).map((z, i) => (
+                  {liquidityZones.shortZones.slice(0, 3).map((z, i) => (
                     <div key={i} className={`flex justify-between items-center text-[10px] px-2 py-1 mb-1 rounded ${
                       z.strength === 'WHALE' ? 'bg-yellow-400/10 border border-yellow-400/30' :
                       z.strength === 'STRONG' ? 'bg-pink-400/10' : 'bg-pink-400/5'
@@ -934,7 +934,7 @@ export default function Home() {
                       <span className="text-cyan-400">${formatVol(z.notional)}</span>
                     </div>
                   ))}
-                  {liquidityZones.filter(z => z.type === 'resistance').length === 0 && (
+                  {liquidityZones.shortZones.length === 0 && (
                     <div className="text-[9px] text-gray-600 px-2 py-1">No strong resistances</div>
                   )}
                 </div>
