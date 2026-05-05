@@ -1,7 +1,10 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CONSTANTS — DO NOT MODIFY (production-tuned)
+// ═══════════════════════════════════════════════════════════════════════════
 const COINS = [
   { symbol: 'BTCUSDT', display: 'BTC' },
   { symbol: 'ETHUSDT', display: 'ETH' },
@@ -19,7 +22,7 @@ const FACTOR_WEIGHTS = { obi: 0.30, pressure: 0.25, delta: 0.20, spread: 0.10, v
 const DIRECTION_THRESHOLD = 25;
 const MIN_FACTOR_AGREEMENT = 2;
 const MIN_RR_RATIO = 1.5;
-const MIN_TP_DISTANCE_PCT = 0.15; // TP must be at least 0.15% from entry (avoids tiny TPs)
+const MIN_TP_DISTANCE_PCT = 0.15;
 const SIGNAL_LOG_MIN_CONFIDENCE = 70;
 const SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
 const WHALE_NOTIONAL_USD = 500_000;
@@ -28,6 +31,9 @@ const SIGNAL_RECOMPUTE_MS = 500;
 const MAX_RECENT_TRADES = 500;
 const MAX_PRICE_HISTORY = 100;
 
+// ═══════════════════════════════════════════════════════════════════════════
+// TYPES — preserved verbatim from v2.2.1
+// ═══════════════════════════════════════════════════════════════════════════
 interface CoinData { price: number; change: number; volume: number; }
 interface DepthLevel { price: number; qty: number; notional: number; isWhale: boolean; }
 interface DepthData {
@@ -59,7 +65,6 @@ interface TradeData {
   lastPrice: number;
   priceHistory: { ts: number; price: number }[];
 }
-
 interface LiquidityZone {
   type: 'support' | 'resistance';
   price: number;
@@ -68,6 +73,9 @@ interface LiquidityZone {
   strength: 'WHALE' | 'STRONG' | 'MEDIUM';
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SIGNAL ENGINE — preserved verbatim (5-factor weighted, RR fix, whale)
+// ═══════════════════════════════════════════════════════════════════════════
 function calcOBI(bids: DepthLevel[], asks: DepthLevel[]): number {
   const bn = bids.reduce((s, b) => s + b.notional, 0);
   const an = asks.reduce((s, a) => s + a.notional, 0);
@@ -131,14 +139,12 @@ function findRiskZones(direction: 'LONG' | 'SHORT', entry: number, bids: DepthLe
     const minTpPrice = entry + (entry * MIN_TP_DISTANCE_PCT / 100);
     const minRrTp = entry + (slDist * MIN_RR_RATIO);
     const targetTp = Math.max(minTpPrice, minRrTp);
-    
-    // Find ask wall (resistance) BEYOND minimum TP distance
-    let tp = targetTp; // default
+
+    let tp = targetTp;
     const wallTarget = asks.find(a => a.price >= targetTp && a.qty > askAvg * 2);
     if (wallTarget) {
-      tp = wallTarget.price - (entry * 0.0001); // just before resistance
+      tp = wallTarget.price - (entry * 0.0001);
     } else {
-      // Find thin zones BEYOND minimum distance
       for (let i = 1; i < asks.length - 1; i++) {
         if (asks[i].price >= targetTp && asks[i].qty < askAvg * 0.5) {
           tp = asks[i].price;
@@ -146,7 +152,7 @@ function findRiskZones(direction: 'LONG' | 'SHORT', entry: number, bids: DepthLe
         }
       }
     }
-    
+
     const riskPct = ((entry - sl) / entry) * 100;
     const rewardPct = ((tp - entry) / entry) * 100;
     return { stopLoss: sl, takeProfit: tp, riskPct, rewardPct, rr: rewardPct / riskPct };
@@ -157,7 +163,7 @@ function findRiskZones(direction: 'LONG' | 'SHORT', entry: number, bids: DepthLe
     const minTpPrice = entry - (entry * MIN_TP_DISTANCE_PCT / 100);
     const minRrTp = entry - (slDist * MIN_RR_RATIO);
     const targetTp = Math.min(minTpPrice, minRrTp);
-    
+
     let tp = targetTp;
     const wallTarget = bids.find(b => b.price <= targetTp && b.qty > bidAvg * 2);
     if (wallTarget) {
@@ -170,7 +176,7 @@ function findRiskZones(direction: 'LONG' | 'SHORT', entry: number, bids: DepthLe
         }
       }
     }
-    
+
     const riskPct = ((sl - entry) / entry) * 100;
     const rewardPct = ((entry - tp) / entry) * 100;
     return { stopLoss: sl, takeProfit: tp, riskPct, rewardPct, rr: rewardPct / riskPct };
@@ -193,14 +199,12 @@ function detectSweep(ph: { ts: number; price: number }[]): boolean {
   return false;
 }
 
-// V2.2: Find best LONG/SHORT entry zones from liquidity walls
 function findLiquidityZones(depth: DepthData): { longZones: LiquidityZone[]; shortZones: LiquidityZone[] } {
   if (!depth) return { longZones: [], shortZones: [] };
 
   const bidAvg = depth.bids.reduce((s, b) => s + b.qty, 0) / depth.bids.length;
   const askAvg = depth.asks.reduce((s, a) => s + a.qty, 0) / depth.asks.length;
 
-  // LONG zones = bid walls (support) - good entries are bouncing OFF these
   const longZones: LiquidityZone[] = depth.bids
     .filter(b => b.qty > bidAvg * 1.8 || b.isWhale)
     .slice(0, 3)
@@ -212,7 +216,6 @@ function findLiquidityZones(depth: DepthData): { longZones: LiquidityZone[]; sho
       strength: b.isWhale ? ('WHALE' as const) : (b.qty > bidAvg * 3 ? 'STRONG' as const : 'MEDIUM' as const),
     }));
 
-  // SHORT zones = ask walls (resistance) - good entries are rejecting AT these
   const shortZones: LiquidityZone[] = depth.asks
     .filter(a => a.qty > askAvg * 1.8 || a.isWhale)
     .slice(0, 3)
@@ -305,6 +308,9 @@ function computeUnifiedSignal(depth: DepthData, trade: TradeData, flags: string[
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════
 export default function Home() {
   const [coinData, setCoinData] = useState<Record<string, CoinData>>({});
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT');
@@ -312,7 +318,7 @@ export default function Home() {
   const [signal, setSignal] = useState<Signal>({
     direction: 'NEUTRAL', confidence: 50, finalScore: 0,
     factors: { obi: 0, pressure: 0, delta: 0, spread: 0, vol: 0 },
-    agreement: 0, rationale: 'Initializing V2.2...', risk: null, flags: [],
+    agreement: 0, rationale: 'Initializing v2.3...', risk: null, flags: [],
   });
   const [time, setTime] = useState('');
   const [signalLog, setSignalLog] = useState<SignalLog[]>([]);
@@ -327,6 +333,7 @@ export default function Home() {
   const signalIdRef = useRef(0);
   const lastSignalRef = useRef<{ symbol: string; direction: string; ts: number } | null>(null);
 
+  // ─── Ticker stream — all coins ───────────────────────────────────────────
   useEffect(() => {
     const streams = COINS.map(c => `${c.symbol.toLowerCase()}@ticker`).join('/');
     const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
@@ -347,7 +354,7 @@ export default function Home() {
     return () => { ws.close(); clearInterval(timer); };
   }, []);
 
-  // V2.2: Direct depth setState (smooth UI like v0.6)
+  // ─── Depth + AggTrade streams — locked symbol ────────────────────────────
   useEffect(() => {
     if (depthWsRef.current) depthWsRef.current.close();
     if (tradeWsRef.current) tradeWsRef.current.close();
@@ -397,7 +404,7 @@ export default function Home() {
       };
 
       latestDepthRef.current = newDepth;
-      setDepth(newDepth); // SMOOTH like v0.6 ✅
+      setDepth(newDepth);
 
       const trade = tradeDataRef.current;
       trade.priceHistory.push({ ts: Date.now(), price: mid });
@@ -440,7 +447,7 @@ export default function Home() {
     return () => { depthWs.close(); tradeWs.close(); };
   }, [selectedSymbol]);
 
-  // Signal compute ONLY throttled (depth UI stays smooth)
+  // ─── Throttled signal compute ────────────────────────────────────────────
   useEffect(() => {
     const interval = setInterval(() => {
       const d = latestDepthRef.current;
@@ -485,6 +492,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [selectedSymbol]);
 
+  // ─── Signal resolution after 5 min ───────────────────────────────────────
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -502,6 +510,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [coinData]);
 
+  // ─── Formatters ──────────────────────────────────────────────────────────
   const formatPrice = (p: number) => {
     if (p >= 1000) return p.toLocaleString('en-US', { maximumFractionDigits: 2 });
     if (p >= 1) return p.toFixed(4);
@@ -515,6 +524,7 @@ export default function Home() {
     return v.toFixed(0);
   };
 
+  // ─── Derived data ────────────────────────────────────────────────────────
   const maxQty = useMemo(() =>
     depth ? Math.max(...depth.bids.map(b => b.qty), ...depth.asks.map(a => a.qty)) : 1,
     [depth]
@@ -544,18 +554,6 @@ export default function Home() {
     };
   }, [signalLog]);
 
-  const signalColor = {
-    LONG: 'text-green-400',
-    SHORT: 'text-pink-400',
-    NEUTRAL: 'text-yellow-400',
-  }[signal.direction];
-
-  const signalGlow = {
-    LONG: 'shadow-[0_0_30px_rgba(74,222,128,0.5)]',
-    SHORT: 'shadow-[0_0_30px_rgba(244,114,182,0.5)]',
-    NEUTRAL: 'shadow-[0_0_30px_rgba(250,204,21,0.5)]',
-  }[signal.direction];
-
   const totalNotional = depth ? depth.bidNotional + depth.askNotional : 0;
   const bidPct = depth && totalNotional > 0 ? (depth.bidNotional / totalNotional) * 100 : 50;
   const askPct = 100 - bidPct;
@@ -564,471 +562,512 @@ export default function Home() {
 
   const hotSignals = signalLog.filter(s => s.outcome === 'pending').slice(0, 3);
 
-  return (
-    <main className="min-h-screen bg-black text-white p-4 md:p-6 font-mono overflow-x-hidden">
-      {/* ═══════════════ HEADER ═══════════════ */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 pb-4 border-b border-cyan-500/30 gap-3">
-        <div>
-          <h1 className="text-2xl md:text-4xl font-bold tracking-widest leading-tight">
-            <span className="bg-gradient-to-r from-cyan-400 via-pink-500 to-yellow-400 bg-clip-text text-transparent">
-              SIGNAL COMMAND CENTER
-            </span>
-          </h1>
-          <div className="text-[10px] text-gray-500 tracking-[0.3em] mt-1">RAUF // SIGNALS · v2.3</div>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 px-3 py-1.5 border border-green-400/40 bg-green-400/5 rounded">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
-            </span>
-            <span className="text-[10px] font-bold text-green-400 tracking-widest">WS CONNECTED · SPOT</span>
-          </div>
-          <div className="text-cyan-400 text-xs font-bold">{time}</div>
-        </div>
-      </header>
+  const dirText = signal.direction === 'LONG' ? 'text-green-400'
+    : signal.direction === 'SHORT' ? 'text-pink-400' : 'text-yellow-400';
+  const dirBorder = signal.direction === 'LONG' ? 'border-green-400/50'
+    : signal.direction === 'SHORT' ? 'border-pink-400/50' : 'border-yellow-400/40';
+  const dirGlow = signal.direction === 'LONG' ? 'shadow-[0_0_40px_rgba(74,222,128,0.25)]'
+    : signal.direction === 'SHORT' ? 'shadow-[0_0_40px_rgba(244,114,182,0.25)]'
+    : 'shadow-[0_0_40px_rgba(250,204,21,0.18)]';
 
-      {/* ═══════════════ COIN SCANNER ═══════════════ */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ MARKET SCANNER</h2>
-          <div className="text-[10px] text-cyan-400 tracking-widest">10 SYMBOLS · 1 LOCKED</div>
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════
+  return (
+    <main className="min-h-screen bg-black text-white font-mono overflow-x-hidden">
+      {/* GRID BACKGROUND */}
+      <div
+        className="fixed inset-0 pointer-events-none opacity-[0.04] z-0"
+        style={{
+          backgroundImage: 'linear-gradient(rgba(34,211,238,1) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,1) 1px, transparent 1px)',
+          backgroundSize: '48px 48px',
+        }}
+      />
+
+      <div className="relative z-10 px-4 md:px-6 py-4">
+        {/* ═══════════════ TOP BAR ═══════════════ */}
+        <header className="flex items-center justify-between mb-4 pb-3 border-b border-cyan-500/20">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 border border-cyan-400/50 rounded flex items-center justify-center bg-cyan-400/5">
+              <span className="text-cyan-400 text-sm font-black">R</span>
+            </div>
+            <div>
+              <div className="text-base md:text-lg font-bold tracking-[0.2em] leading-none">
+                RAUF<span className="text-cyan-400">·</span>SIGNALS
+              </div>
+              <div className="text-[9px] text-gray-500 tracking-[0.3em] mt-0.5">v2.3 · TERMINAL</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="hidden md:flex items-center gap-2 px-2.5 py-1 border border-green-400/30 bg-green-400/5 rounded-sm">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-400"></span>
+              </span>
+              <span className="text-[9px] font-bold text-green-400 tracking-[0.2em]">WS · BINANCE SPOT</span>
+            </div>
+            <div className="text-cyan-400 text-[11px] font-bold tabular-nums tracking-widest">{time || '--:--:--'}</div>
+          </div>
+        </header>
+
+        {/* ═══════════════ TICKER STRIP — Top Gainers / Top Losers / Hot Signals ═══════════════ */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-4">
+          {/* TOP GAINERS */}
+          <div className="border border-green-500/20 bg-green-500/[0.03] rounded-sm p-2.5">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[9px] font-bold tracking-[0.25em] text-green-400">▸ TOP GAINERS · 24H</span>
+              <span className="text-[8px] text-gray-600">3</span>
+            </div>
+            <div className="space-y-1">
+              {topGainers.length > 0 ? topGainers.map(c => (
+                <button
+                  key={c.symbol}
+                  onClick={() => setSelectedSymbol(c.symbol)}
+                  className="w-full flex items-center justify-between text-[10px] hover:bg-green-500/10 px-1.5 py-0.5 rounded-sm transition-colors"
+                >
+                  <span className="font-bold text-white tracking-wider">{c.display}</span>
+                  <span className="text-gray-400 tabular-nums">${formatPrice(c.data!.price)}</span>
+                  <span className="text-green-400 font-bold tabular-nums">+{c.data!.change.toFixed(2)}%</span>
+                </button>
+              )) : <div className="text-[9px] text-gray-600 px-1.5 py-2">Loading...</div>}
+            </div>
+          </div>
+
+          {/* TOP LOSERS */}
+          <div className="border border-pink-500/20 bg-pink-500/[0.03] rounded-sm p-2.5">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[9px] font-bold tracking-[0.25em] text-pink-400">▸ TOP LOSERS · 24H</span>
+              <span className="text-[8px] text-gray-600">3</span>
+            </div>
+            <div className="space-y-1">
+              {topLosers.length > 0 ? topLosers.map(c => (
+                <button
+                  key={c.symbol}
+                  onClick={() => setSelectedSymbol(c.symbol)}
+                  className="w-full flex items-center justify-between text-[10px] hover:bg-pink-500/10 px-1.5 py-0.5 rounded-sm transition-colors"
+                >
+                  <span className="font-bold text-white tracking-wider">{c.display}</span>
+                  <span className="text-gray-400 tabular-nums">${formatPrice(c.data!.price)}</span>
+                  <span className="text-pink-400 font-bold tabular-nums">{c.data!.change.toFixed(2)}%</span>
+                </button>
+              )) : <div className="text-[9px] text-gray-600 px-1.5 py-2">Loading...</div>}
+            </div>
+          </div>
+
+          {/* HOT SIGNALS */}
+          <div className="border border-yellow-400/20 bg-yellow-400/[0.03] rounded-sm p-2.5">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[9px] font-bold tracking-[0.25em] text-yellow-400">▸ HOT SIGNALS · LIVE</span>
+              <span className="text-[8px] text-gray-600">{hotSignals.length}/3</span>
+            </div>
+            <div className="space-y-1">
+              {hotSignals.length > 0 ? hotSignals.map(s => (
+                <div key={s.id} className="flex items-center justify-between text-[10px] px-1.5 py-0.5">
+                  <span className="font-bold text-white tracking-wider">{s.symbol.replace('USDT','')}</span>
+                  <span className={`font-bold ${s.direction === 'LONG' ? 'text-green-400' : 'text-pink-400'}`}>{s.direction}</span>
+                  <span className="text-cyan-400 tabular-nums">{s.confidence}%</span>
+                  <span className="text-yellow-400 tabular-nums">{s.rr.toFixed(1)}R</span>
+                </div>
+              )) : <div className="text-[9px] text-gray-600 px-1.5 py-2">Awaiting 70%+ conviction…</div>}
+            </div>
+          </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-          {COINS.map(coin => {
-            const data = coinData[coin.symbol];
-            const isUp = data && data.change >= 0;
-            const isSelected = coin.symbol === selectedSymbol;
-            return (
-              <div
-                key={coin.symbol}
-                onClick={() => setSelectedSymbol(coin.symbol)}
-                className={`relative p-3 rounded border-2 backdrop-blur cursor-pointer transition-all duration-300 hover:scale-[1.02] ${
-                  isSelected
-                    ? 'border-cyan-400 bg-cyan-400/5 shadow-[0_0_20px_rgba(34,211,238,0.4)]'
-                    : isUp
-                    ? 'border-green-500/20 bg-gray-900/40 hover:border-green-500/40'
-                    : 'border-pink-500/20 bg-gray-900/40 hover:border-pink-500/40'
-                }`}
-              >
-                {isSelected && (
-                  <div className="absolute -top-2 left-2 px-2 py-0.5 bg-cyan-400 rounded text-[8px] font-bold text-black tracking-widest">
-                    ◆ LOCKED
+
+        {/* ═══════════════ MARKET SCANNER ═══════════════ */}
+        <section className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-[9px] font-bold tracking-[0.3em] text-gray-500">▸ MARKET SCANNER</h2>
+            <div className="text-[9px] text-cyan-400 tracking-[0.25em]">10 SYMBOLS · 1 LOCKED</div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10 gap-1.5">
+            {COINS.map(coin => {
+              const data = coinData[coin.symbol];
+              const isUp = data && data.change >= 0;
+              const isSelected = coin.symbol === selectedSymbol;
+              return (
+                <button
+                  key={coin.symbol}
+                  onClick={() => setSelectedSymbol(coin.symbol)}
+                  className={`relative p-2 rounded-sm border text-left transition-all duration-150 ${
+                    isSelected
+                      ? 'border-cyan-400 bg-cyan-400/[0.06] shadow-[0_0_16px_rgba(34,211,238,0.25)]'
+                      : 'border-gray-800 bg-gray-900/30 hover:border-gray-700 hover:bg-gray-900/60'
+                  }`}
+                >
+                  {isSelected && (
+                    <div className="absolute -top-1.5 left-1.5 px-1 py-px bg-cyan-400 rounded-sm text-[7px] font-bold text-black tracking-[0.2em] leading-none">◆ LOCKED</div>
+                  )}
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[11px] font-bold tracking-wider">{coin.display}</span>
+                    {data && (
+                      <span className={`text-[8px] tabular-nums ${isUp ? 'text-green-400' : 'text-pink-400'}`}>
+                        {isUp ? '+' : ''}{data.change.toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                  <div className={`text-[11px] font-bold tabular-nums ${isUp ? 'text-green-300' : 'text-pink-300'}`}>
+                    {data ? '$' + formatPrice(data.price) : '—'}
+                  </div>
+                  <div className="text-[8px] text-gray-600 tracking-wider mt-0.5">VOL ${data ? formatVol(data.volume) : '—'}</div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ═══════════════ REACTOR CORE — HERO ═══════════════ */}
+        <section className={`relative mb-4 rounded border-2 ${dirBorder} ${dirGlow} bg-gray-900/30 backdrop-blur overflow-hidden`}>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_320px] gap-4 p-4 md:p-5 items-stretch">
+            {/* LEFT — Direction + rationale */}
+            <div className="flex flex-col justify-between min-h-[180px]">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[9px] tracking-[0.3em] text-gray-500">▸ REACTOR CORE</div>
+                  <div className="text-cyan-400 text-[11px] font-bold tracking-widest mt-0.5">{selectedSymbol}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[8px] text-gray-600 tracking-[0.25em]">SIGNAL ONLY · NO EXEC</div>
+                  <div className="text-[8px] text-yellow-400/80 tracking-[0.25em]">⚠ NOT FINANCIAL ADVICE</div>
+                </div>
+              </div>
+              <div>
+                <div className={`text-7xl md:text-8xl font-black tracking-tight leading-none ${dirText}`} style={{ filter: 'drop-shadow(0 0 24px currentColor)' }}>
+                  {signal.direction}
+                </div>
+                <div className="text-[11px] text-cyan-400 tracking-widest mt-2">▸ {signal.rationale}</div>
+                {signal.flags.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {signal.flags.map(f => (
+                      <span key={f} className="text-[9px] px-1.5 py-0.5 border border-yellow-400/30 bg-yellow-400/5 text-yellow-400 rounded-sm tracking-widest">⚠ {f}</span>
+                    ))}
                   </div>
                 )}
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-bold tracking-wider">{coin.display}</span>
-                  {data && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                      isUp ? 'bg-green-500/20 text-green-400' : 'bg-pink-500/20 text-pink-400'
-                    }`}>
-                      {isUp ? '+' : ''}{data.change.toFixed(2)}%
-                    </span>
-                  )}
-                </div>
-                <div className={`text-base font-bold mb-1 transition-colors ${isUp ? 'text-green-400' : 'text-pink-400'}`}>
-                  {data ? '$' + formatPrice(data.price) : '...'}
-                </div>
-                <div className="text-[9px] text-gray-500 tracking-wider">VOL ${data ? formatVol(data.volume) : '—'}</div>
               </div>
-            );
-          })}
-        </div>
-      </div>
+            </div>
 
-      {/* ═══════════════ HERO SIGNAL DISPLAY ═══════════════ */}
-      <div className={`relative mb-6 rounded-lg overflow-hidden border-2 ${
-        signal.direction === 'LONG' ? 'border-green-400/40' :
-        signal.direction === 'SHORT' ? 'border-pink-400/40' : 'border-yellow-400/40'
-      } ${signalGlow}`}>
-        <div className={`absolute inset-0 opacity-10 bg-gradient-to-br ${
-          signal.direction === 'LONG' ? 'from-green-500 to-cyan-500' :
-          signal.direction === 'SHORT' ? 'from-pink-500 to-purple-500' : 'from-yellow-500 to-orange-500'
-        }`}></div>
-        <div className="relative p-6 md:p-8">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <div className="text-[10px] tracking-[0.3em] text-gray-400 mb-1">▸ REACTOR CORE</div>
-              <div className="text-sm text-cyan-400 font-bold">{selectedSymbol}</div>
+            {/* CENTER — Confidence ring */}
+            <div className="flex items-center justify-center">
+              <div className={`relative w-40 h-40 rounded-full border-2 flex flex-col items-center justify-center backdrop-blur ${dirBorder} ${
+                signal.direction === 'LONG' ? 'bg-green-400/[0.04]'
+                : signal.direction === 'SHORT' ? 'bg-pink-400/[0.04]' : 'bg-yellow-400/[0.04]'
+              }`}>
+                <div className="text-[8px] text-gray-500 tracking-[0.3em]">CONFIDENCE</div>
+                <div className={`text-5xl font-black ${dirText} tabular-nums leading-none mt-1`}>{signal.confidence}</div>
+                <div className="text-[9px] text-gray-500 tracking-widest mt-1">PERCENT</div>
+                <div className="text-[9px] text-cyan-400 tracking-[0.2em] mt-1">{signal.agreement}/3 AGREE</div>
+              </div>
             </div>
-            <div className="text-right">
-              <div className="text-[10px] text-gray-400 tracking-widest">SIGNAL ONLY</div>
-              <div className="text-[10px] text-yellow-400 tracking-widest">NO EXEC</div>
-            </div>
+
+            {/* RIGHT — Risk panel */}
+            {signal.risk && signal.direction !== 'NEUTRAL' ? (
+              <div className="border border-gray-800 rounded-sm bg-black/40 p-3 flex flex-col justify-between">
+                <div className="text-[9px] tracking-[0.3em] text-gray-500 mb-2">▸ RISK ZONES</div>
+                <div className="space-y-2 text-[11px]">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-gray-500 tracking-wider">ENTRY</span>
+                    <span className="text-white font-bold tabular-nums">{formatPrice(depth?.mid || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-gray-500 tracking-wider">STOP</span>
+                    <span className="text-pink-400 font-bold tabular-nums">{formatPrice(signal.risk.stopLoss)} <span className="text-[9px] opacity-70">−{signal.risk.riskPct.toFixed(2)}%</span></span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-gray-500 tracking-wider">TARGET</span>
+                    <span className="text-green-400 font-bold tabular-nums">{formatPrice(signal.risk.takeProfit)} <span className="text-[9px] opacity-70">+{signal.risk.rewardPct.toFixed(2)}%</span></span>
+                  </div>
+                  <div className="flex justify-between items-baseline pt-2 border-t border-gray-800">
+                    <span className="text-gray-500 tracking-wider">R:R</span>
+                    <span className={`font-bold tabular-nums text-base ${signal.risk.rr >= MIN_RR_RATIO ? 'text-yellow-400' : 'text-red-400'}`}>{signal.risk.rr.toFixed(2)}<span className="text-[9px] text-gray-600 ml-1">MIN {MIN_RR_RATIO}</span></span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="border border-gray-800 border-dashed rounded-sm bg-black/20 p-3 flex items-center justify-center text-center">
+                <div>
+                  <div className="text-[9px] tracking-[0.3em] text-gray-600 mb-1">▸ RISK ZONES</div>
+                  <div className="text-[10px] text-gray-600">Awaiting directional signal</div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="flex flex-col md:flex-row items-center gap-6">
-            {/* MASSIVE Signal Display */}
-            <div className="flex-1 text-center md:text-left">
-              <div className={`text-6xl md:text-8xl font-black tracking-tight leading-none mb-2 ${signalColor} drop-shadow-[0_0_20px_currentColor]`}>
-                {signal.direction}
-              </div>
-              <div className="text-xs text-cyan-400 tracking-widest mt-2">
-                ▸ {signal.rationale}
-              </div>
-            </div>
-
-            {/* Confidence Circle */}
-            <div className="relative">
-              <div className={`w-36 h-36 md:w-44 md:h-44 rounded-full border-4 flex flex-col items-center justify-center backdrop-blur ${
-                signal.direction === 'LONG' ? 'border-green-400 bg-green-400/5' :
-                signal.direction === 'SHORT' ? 'border-pink-400 bg-pink-400/5' : 'border-yellow-400 bg-yellow-400/5'
-              }`}>
-                <div className="text-[10px] text-gray-500 tracking-[0.3em]">CONFIDENCE</div>
-                <div className={`text-5xl md:text-6xl font-black ${signalColor}`}>{signal.confidence}</div>
-                <div className="text-xs text-gray-500">PERCENT</div>
-                <div className="text-[10px] text-cyan-400 tracking-widest mt-1">{signal.agreement}/3 AGREE</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Visual TP Target Card */}
-          {signal.risk && signal.direction !== 'NEUTRAL' && (
-            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="border border-cyan-400/30 rounded p-3 bg-black/40">
-                <div className="text-[9px] text-gray-500 tracking-widest mb-1">▸ ENTRY</div>
-                <div className="text-lg md:text-xl font-bold text-white">{formatPrice(depth?.mid || 0)}</div>
-              </div>
-              <div className="border border-pink-400/30 rounded p-3 bg-black/40">
-                <div className="text-[9px] text-gray-500 tracking-widest mb-1">▸ STOP LOSS</div>
-                <div className="text-lg md:text-xl font-bold text-pink-400">{formatPrice(signal.risk.stopLoss)}</div>
-                <div className="text-[9px] text-pink-400/70">-{signal.risk.riskPct.toFixed(2)}%</div>
-              </div>
-              <div className="border border-green-400/30 rounded p-3 bg-black/40">
-                <div className="text-[9px] text-gray-500 tracking-widest mb-1">▸ TAKE PROFIT</div>
-                <div className="text-lg md:text-xl font-bold text-green-400">{formatPrice(signal.risk.takeProfit)}</div>
-                <div className="text-[9px] text-green-400/70">+{signal.risk.rewardPct.toFixed(2)}%</div>
-              </div>
-              <div className={`border rounded p-3 bg-black/40 ${
-                signal.risk.rr >= MIN_RR_RATIO ? 'border-yellow-400/40' : 'border-red-500/40'
-              }`}>
-                <div className="text-[9px] text-gray-500 tracking-widest mb-1">▸ R:R RATIO</div>
-                <div className={`text-lg md:text-xl font-bold ${
-                  signal.risk.rr >= MIN_RR_RATIO ? 'text-yellow-400' : 'text-red-400'
-                }`}>{signal.risk.rr.toFixed(2)}</div>
-                <div className="text-[9px] text-gray-500">MIN {MIN_RR_RATIO}</div>
-              </div>
-            </div>
-          )}
-
-          {/* Factor Bars */}
-          <div className="mt-6 grid grid-cols-2 md:grid-cols-5 gap-2">
+          {/* Factor strip */}
+          <div className="border-t border-gray-800 grid grid-cols-5 divide-x divide-gray-800">
             {(['obi','pressure','delta','spread','vol'] as const).map(k => {
               const v = signal.factors[k];
               const w = FACTOR_WEIGHTS[k] * 100;
-              const colorClass = v > 25 ? 'bg-green-400' : v < -25 ? 'bg-pink-400' : Math.abs(v) > 50 ? 'bg-cyan-400' : 'bg-yellow-400';
-              const valueColor = v > 25 ? 'text-green-400' : v < -25 ? 'text-pink-400' : 'text-yellow-400';
+              const isDirectional = k === 'obi' || k === 'pressure' || k === 'delta';
+              const barColor = isDirectional
+                ? (v > 25 ? 'bg-green-400' : v < -25 ? 'bg-pink-400' : 'bg-yellow-400')
+                : 'bg-cyan-400';
+              const valColor = isDirectional
+                ? (v > 25 ? 'text-green-400' : v < -25 ? 'text-pink-400' : 'text-yellow-400')
+                : 'text-cyan-400';
               return (
-                <div key={k} className="border border-gray-800 rounded p-2 bg-black/30">
+                <div key={k} className="p-2.5">
                   <div className="flex justify-between items-baseline mb-1">
-                    <span className="text-[9px] text-gray-400 tracking-widest uppercase">{k}</span>
+                    <span className="text-[9px] text-gray-400 tracking-[0.2em] uppercase">{k}</span>
                     <span className="text-[8px] text-gray-600">{w.toFixed(0)}%</span>
                   </div>
-                  <div className="h-1.5 bg-gray-900 rounded overflow-hidden mb-1">
+                  <div className="h-1 bg-gray-900 rounded-sm overflow-hidden mb-1">
                     <div
-                      className={`h-full transition-all duration-500 ease-out ${colorClass}`}
+                      className={`h-full transition-all duration-300 ${barColor}`}
                       style={{ width: `${Math.min(100, Math.abs(v))}%` }}
-                    ></div>
+                    />
                   </div>
-                  <div className={`text-sm font-bold ${valueColor}`}>{v > 0 ? '+' : ''}{v.toFixed(0)}</div>
+                  <div className={`text-sm font-bold tabular-nums ${valColor}`}>{v > 0 ? '+' : ''}{v.toFixed(0)}</div>
                 </div>
               );
             })}
           </div>
+        </section>
 
-          {/* Flags / Warnings */}
-          {signal.flags.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {signal.flags.map(f => (
-                <span key={f} className="text-[9px] px-2 py-1 border border-yellow-400/40 bg-yellow-400/10 text-yellow-400 rounded tracking-widest">
-                  ⚠ {f}
-                </span>
-              ))}
+        {/* ═══════════════ DEPTH + LIQUIDITY ═══════════════ */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+          {/* DEPTH MAP */}
+          <div className="border border-gray-800 rounded-sm bg-gray-900/30">
+            <div className="flex justify-between items-center px-3 py-2 border-b border-gray-800">
+              <span className="text-[9px] font-bold tracking-[0.3em] text-gray-500">▸ DEPTH PRESSURE MAP</span>
+              <span className="text-[9px] text-cyan-400 tracking-[0.25em]">TOP 20 · 100ms</span>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* ═══════════════ DEPTH PRESSURE MAP + LIQUIDITY ═══════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        {/* Depth Map */}
-        <div className="border border-gray-800 rounded p-4 bg-gray-900/30">
-          <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
-            <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ DEPTH PRESSURE MAP</h2>
-            <span className="text-[10px] text-cyan-400 tracking-widest">TOP 20</span>
-          </div>
-
-          {depth ? (
-            <>
-              <div className="grid grid-cols-3 mb-4 pb-3 border-b border-gray-800">
-                <div className="text-center">
-                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">BEST BID</div>
-                  <div className="text-green-400 font-bold text-sm">{formatPrice(depth.bestBid)}</div>
+            {depth ? (
+              <div className="p-3">
+                <div className="grid grid-cols-3 mb-3 pb-2 border-b border-gray-800 text-[10px] tabular-nums">
+                  <div><div className="text-[8px] text-gray-600 tracking-[0.25em]">BID</div><div className="text-green-400 font-bold">{formatPrice(depth.bestBid)}</div></div>
+                  <div className="text-center"><div className="text-[8px] text-gray-600 tracking-[0.25em]">MID</div><div className="text-yellow-400 font-bold">{formatPrice(depth.mid)}</div></div>
+                  <div className="text-right"><div className="text-[8px] text-gray-600 tracking-[0.25em]">ASK</div><div className="text-pink-400 font-bold">{formatPrice(depth.bestAsk)}</div></div>
                 </div>
-                <div className="text-center">
-                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">MID</div>
-                  <div className="text-yellow-400 font-bold text-sm">{formatPrice(depth.mid)}</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">BEST ASK</div>
-                  <div className="text-pink-400 font-bold text-sm">{formatPrice(depth.bestAsk)}</div>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                {Array.from({ length: Math.min(15, TOP_OB_LEVELS) }).map((_, i) => {
-                  const bid = depth.bids[i];
-                  const ask = depth.asks[i];
-                  const bidWidth = bid ? (bid.qty / maxQty) * 100 : 0;
-                  const askWidth = ask ? (ask.qty / maxQty) * 100 : 0;
-                  return (
-                    <div key={i} className="grid grid-cols-4 gap-2 items-center text-xs">
-                      <div className="h-4 bg-gray-900 rounded relative overflow-hidden">
-                        {bid && (
-                          <div
-                            className={`absolute right-0 h-full transition-all duration-300 ease-out ${
-                              bid.isWhale
-                                ? 'bg-gradient-to-l from-yellow-400/60 to-transparent border-r-2 border-yellow-400'
-                                : 'bg-gradient-to-l from-green-500/40 to-transparent border-r-2 border-green-400'
-                            } rounded text-right pr-2 ${bid.isWhale ? 'text-yellow-300' : 'text-green-400'} leading-4 text-[10px]`}
-                            style={{ width: `${bidWidth}%` }}
-                          >
-                            {bid.qty.toFixed(3)}{bid.isWhale && ' 🐋'}
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-green-400 text-center text-[10px]">{bid ? formatPrice(bid.price) : ''}</div>
-                      <div className="text-pink-400 text-center text-[10px]">{ask ? formatPrice(ask.price) : ''}</div>
-                      <div className="h-4 bg-gray-900 rounded relative overflow-hidden">
-                        {ask && (
-                          <div
-                            className={`absolute left-0 h-full transition-all duration-300 ease-out ${
-                              ask.isWhale
-                                ? 'bg-gradient-to-r from-yellow-400/60 to-transparent border-l-2 border-yellow-400'
-                                : 'bg-gradient-to-r from-pink-500/40 to-transparent border-l-2 border-pink-400'
-                            } rounded pl-2 ${ask.isWhale ? 'text-yellow-300' : 'text-pink-400'} leading-4 text-[10px]`}
-                            style={{ width: `${askWidth}%` }}
-                          >
-                            {ask.isWhale && '🐋 '}{ask.qty.toFixed(3)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-gray-800 text-xs">
-                <div className="text-center">
-                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">BID NOTIONAL</div>
-                  <div className="text-green-400 font-bold">${formatVol(depth.bidNotional)}</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">SPREAD</div>
-                  <div className="text-cyan-400 font-bold">{depth.spreadBps.toFixed(2)} bps</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[9px] text-gray-500 tracking-widest mb-1">ASK NOTIONAL</div>
-                  <div className="text-pink-400 font-bold">${formatVol(depth.askNotional)}</div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="text-center text-gray-500 py-8 text-xs tracking-widest">▸ INITIALIZING DEPTH...</div>
-          )}
-        </div>
-
-        {/* Liquidity Heatmap */}
-        <div className="border border-gray-800 rounded p-4 bg-gray-900/30">
-          <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-800">
-            <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ LIQUIDITY HEATMAP</h2>
-            <span className="text-[10px] text-cyan-400 tracking-widest">±53 BPS · WALLS</span>
-          </div>
-
-          {depth ? (
-            <>
-              <div className="relative h-20 bg-gray-900 rounded overflow-hidden mb-3">
-                <div className="absolute inset-0 flex">
-                  <div className="flex-1 flex flex-row-reverse">
-                    {depth.bids.slice().reverse().map((b, i) => {
-                      const intensity = Math.min(100, (b.notional / WHALE_NOTIONAL_USD) * 100);
-                      const bgColor = b.isWhale
-                        ? `rgba(250, 204, 21, ${0.3 + intensity / 200})`
-                        : `rgba(74, 222, 128, ${0.15 + intensity / 200})`;
-                      return (
-                        <div
-                          key={`b-${i}`}
-                          className="flex-1 relative transition-all duration-300"
-                          style={{ background: bgColor }}
-                          title={`${formatPrice(b.price)} · $${formatVol(b.notional)}${b.isWhale ? ' 🐋' : ''}`}
-                        >
-                          {b.isWhale && (
-                            <div className="absolute inset-0 flex items-center justify-center text-[10px]">🐋</div>
+                <div className="space-y-0.5">
+                  {Array.from({ length: Math.min(15, TOP_OB_LEVELS) }).map((_, i) => {
+                    const bid = depth.bids[i];
+                    const ask = depth.asks[i];
+                    const bw = bid ? (bid.qty / maxQty) * 100 : 0;
+                    const aw = ask ? (ask.qty / maxQty) * 100 : 0;
+                    return (
+                      <div key={i} className="grid grid-cols-[1fr_auto_auto_1fr] gap-1.5 items-center text-[10px] tabular-nums">
+                        <div className="h-3.5 bg-gray-950 relative overflow-hidden rounded-sm">
+                          {bid && (
+                            <div
+                              className={`absolute right-0 top-0 h-full ${
+                                bid.isWhale
+                                  ? 'bg-gradient-to-l from-yellow-400/50 to-transparent border-r border-yellow-400'
+                                  : 'bg-gradient-to-l from-green-500/35 to-transparent border-r border-green-400'
+                              } text-right pr-1.5 leading-[14px] text-[9px] ${bid.isWhale ? 'text-yellow-300' : 'text-green-400'}`}
+                              style={{ width: `${bw}%` }}
+                            >{bid.qty.toFixed(3)}{bid.isWhale && ' 🐋'}</div>
                           )}
                         </div>
-                      );
-                    })}
-                  </div>
-                  <div className="w-1 bg-yellow-400 z-10 shadow-[0_0_10px_rgba(250,204,21,0.8)]"></div>
-                  <div className="flex-1 flex flex-row">
-                    {depth.asks.map((a, i) => {
-                      const intensity = Math.min(100, (a.notional / WHALE_NOTIONAL_USD) * 100);
-                      const bgColor = a.isWhale
-                        ? `rgba(250, 204, 21, ${0.3 + intensity / 200})`
-                        : `rgba(244, 114, 182, ${0.15 + intensity / 200})`;
-                      return (
-                        <div
-                          key={`a-${i}`}
-                          className="flex-1 relative transition-all duration-300"
-                          style={{ background: bgColor }}
-                          title={`${formatPrice(a.price)} · $${formatVol(a.notional)}${a.isWhale ? ' 🐋' : ''}`}
-                        >
-                          {a.isWhale && (
-                            <div className="absolute inset-0 flex items-center justify-center text-[10px]">🐋</div>
+                        <div className="text-green-400 w-16 text-right">{bid ? formatPrice(bid.price) : ''}</div>
+                        <div className="text-pink-400 w-16">{ask ? formatPrice(ask.price) : ''}</div>
+                        <div className="h-3.5 bg-gray-950 relative overflow-hidden rounded-sm">
+                          {ask && (
+                            <div
+                              className={`absolute left-0 top-0 h-full ${
+                                ask.isWhale
+                                  ? 'bg-gradient-to-r from-yellow-400/50 to-transparent border-l border-yellow-400'
+                                  : 'bg-gradient-to-r from-pink-500/35 to-transparent border-l border-pink-400'
+                              } pl-1.5 leading-[14px] text-[9px] ${ask.isWhale ? 'text-yellow-300' : 'text-pink-400'}`}
+                              style={{ width: `${aw}%` }}
+                            >{ask.isWhale && '🐋 '}{ask.qty.toFixed(3)}</div>
                           )}
                         </div>
-                      );
-                    })}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-3 gap-2 mt-3 pt-2 border-t border-gray-800 text-[10px] tabular-nums">
+                  <div><div className="text-[8px] text-gray-600 tracking-[0.25em]">BID NOTIONAL</div><div className="text-green-400 font-bold">${formatVol(depth.bidNotional)}</div></div>
+                  <div className="text-center"><div className="text-[8px] text-gray-600 tracking-[0.25em]">SPREAD</div><div className="text-cyan-400 font-bold">{depth.spreadBps.toFixed(2)} bps</div></div>
+                  <div className="text-right"><div className="text-[8px] text-gray-600 tracking-[0.25em]">ASK NOTIONAL</div><div className="text-pink-400 font-bold">${formatVol(depth.askNotional)}</div></div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-gray-600 py-10 text-[10px] tracking-[0.25em]">▸ INITIALIZING DEPTH…</div>
+            )}
+          </div>
+
+          {/* LIQUIDITY HEATMAP */}
+          <div className="border border-gray-800 rounded-sm bg-gray-900/30">
+            <div className="flex justify-between items-center px-3 py-2 border-b border-gray-800">
+              <span className="text-[9px] font-bold tracking-[0.3em] text-gray-500">▸ LIQUIDITY HEATMAP</span>
+              <span className="text-[9px] text-cyan-400 tracking-[0.25em]">±53 BPS · WALLS</span>
+            </div>
+            {depth ? (
+              <div className="p-3">
+                <div className="relative h-16 bg-gray-950 rounded-sm overflow-hidden mb-2">
+                  <div className="absolute inset-0 flex">
+                    <div className="flex-1 flex flex-row-reverse">
+                      {depth.bids.slice().reverse().map((b, i) => {
+                        const intensity = Math.min(100, (b.notional / WHALE_NOTIONAL_USD) * 100);
+                        const bg = b.isWhale
+                          ? `rgba(250, 204, 21, ${0.3 + intensity / 200})`
+                          : `rgba(74, 222, 128, ${0.15 + intensity / 200})`;
+                        return (
+                          <div
+                            key={`b-${i}`}
+                            className="flex-1 relative"
+                            style={{ background: bg }}
+                            title={`${formatPrice(b.price)} · $${formatVol(b.notional)}${b.isWhale ? ' 🐋' : ''}`}
+                          >
+                            {b.isWhale && <div className="absolute inset-0 flex items-center justify-center text-[9px]">🐋</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="w-px bg-yellow-400 z-10 shadow-[0_0_8px_rgba(250,204,21,0.8)]" />
+                    <div className="flex-1 flex flex-row">
+                      {depth.asks.map((a, i) => {
+                        const intensity = Math.min(100, (a.notional / WHALE_NOTIONAL_USD) * 100);
+                        const bg = a.isWhale
+                          ? `rgba(250, 204, 21, ${0.3 + intensity / 200})`
+                          : `rgba(244, 114, 182, ${0.15 + intensity / 200})`;
+                        return (
+                          <div
+                            key={`a-${i}`}
+                            className="flex-1 relative"
+                            style={{ background: bg }}
+                            title={`${formatPrice(a.price)} · $${formatVol(a.notional)}${a.isWhale ? ' 🐋' : ''}`}
+                          >
+                            {a.isWhale && <div className="absolute inset-0 flex items-center justify-center text-[9px]">🐋</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-between text-[8px] text-gray-600 tracking-wider mb-2 tabular-nums">
+                  <span>← {depth.bids[depth.bids.length-1] ? formatPrice(depth.bids[depth.bids.length-1].price) : ''}</span>
+                  <span className="text-yellow-400">MID {formatPrice(depth.mid)}</span>
+                  <span>{depth.asks[depth.asks.length-1] ? formatPrice(depth.asks[depth.asks.length-1].price) : ''} →</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div>
+                    <div className="text-[9px] text-green-400 tracking-[0.2em] mb-1">▸ FRESH LONG · SUPPORT</div>
+                    {liquidityZones.longZones.slice(0, 3).map((z, i) => (
+                      <div key={i} className={`flex items-center justify-between text-[10px] px-1.5 py-1 mb-1 rounded-sm ${
+                        z.strength === 'WHALE' ? 'bg-yellow-400/10 border border-yellow-400/30'
+                        : z.strength === 'STRONG' ? 'bg-green-400/[0.07]' : 'bg-green-400/[0.04]'
+                      }`}>
+                        <span className={`px-1 rounded-sm text-[7px] tracking-[0.2em] font-bold ${
+                          z.strength === 'WHALE' ? 'bg-yellow-400 text-black'
+                          : z.strength === 'STRONG' ? 'bg-green-500 text-black' : 'bg-green-700 text-white'
+                        }`}>{z.strength}</span>
+                        <span className="text-green-400 font-bold tabular-nums">{formatPrice(z.price)}</span>
+                        <span className="text-cyan-400 tabular-nums">${formatVol(z.notional)}</span>
+                      </div>
+                    ))}
+                    {liquidityZones.longZones.length === 0 && <div className="text-[9px] text-gray-600 px-1.5 py-1">No strong supports</div>}
+                  </div>
+                  <div>
+                    <div className="text-[9px] text-pink-400 tracking-[0.2em] mb-1">▸ FRESH SHORT · RESISTANCE</div>
+                    {liquidityZones.shortZones.slice(0, 3).map((z, i) => (
+                      <div key={i} className={`flex items-center justify-between text-[10px] px-1.5 py-1 mb-1 rounded-sm ${
+                        z.strength === 'WHALE' ? 'bg-yellow-400/10 border border-yellow-400/30'
+                        : z.strength === 'STRONG' ? 'bg-pink-400/[0.07]' : 'bg-pink-400/[0.04]'
+                      }`}>
+                        <span className={`px-1 rounded-sm text-[7px] tracking-[0.2em] font-bold ${
+                          z.strength === 'WHALE' ? 'bg-yellow-400 text-black'
+                          : z.strength === 'STRONG' ? 'bg-pink-500 text-black' : 'bg-pink-700 text-white'
+                        }`}>{z.strength}</span>
+                        <span className="text-pink-400 font-bold tabular-nums">{formatPrice(z.price)}</span>
+                        <span className="text-cyan-400 tabular-nums">${formatVol(z.notional)}</span>
+                      </div>
+                    ))}
+                    {liquidityZones.shortZones.length === 0 && <div className="text-[9px] text-gray-600 px-1.5 py-1">No strong resistances</div>}
                   </div>
                 </div>
               </div>
-              <div className="flex justify-between text-[9px] text-gray-500 mb-3">
-                <span>← BIDS deeper {depth.bids[depth.bids.length-1] ? formatPrice(depth.bids[depth.bids.length-1].price) : ''}</span>
-                <span className="text-yellow-400">MID {formatPrice(depth.mid)}</span>
-                <span>{depth.asks[depth.asks.length-1] ? formatPrice(depth.asks[depth.asks.length-1].price) : ''} ASKS deeper →</span>
-              </div>
-
-              {/* Fresh Long/Short Zones */}
-              <div className="grid grid-cols-2 gap-2 mt-3">
-                <div>
-                  <div className="text-[9px] text-green-400 tracking-widest mb-1">▸ FRESH LONG ZONES</div>
-                  {liquidityZones.longZones.slice(0, 3).map((z, i) => (
-                    <div key={i} className={`flex justify-between items-center text-[10px] px-2 py-1 mb-1 rounded ${
-                      z.strength === 'WHALE' ? 'bg-yellow-400/10 border border-yellow-400/30' :
-                      z.strength === 'STRONG' ? 'bg-green-400/10' : 'bg-green-400/5'
-                    }`}>
-                      <span className={`px-1 rounded text-[8px] tracking-widest ${
-                        z.strength === 'WHALE' ? 'bg-yellow-400 text-black' :
-                        z.strength === 'STRONG' ? 'bg-green-500 text-black' : 'bg-green-700 text-white'
-                      }`}>{z.strength}</span>
-                      <span className="text-green-400 font-bold">{formatPrice(z.price)}</span>
-                      <span className="text-cyan-400">${formatVol(z.notional)}</span>
-                    </div>
-                  ))}
-                  {liquidityZones.longZones.length === 0 && (
-                    <div className="text-[9px] text-gray-600 px-2 py-1">No strong supports</div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-[9px] text-pink-400 tracking-widest mb-1">▸ FRESH SHORT ZONES</div>
-                  {liquidityZones.shortZones.slice(0, 3).map((z, i) => (
-                    <div key={i} className={`flex justify-between items-center text-[10px] px-2 py-1 mb-1 rounded ${
-                      z.strength === 'WHALE' ? 'bg-yellow-400/10 border border-yellow-400/30' :
-                      z.strength === 'STRONG' ? 'bg-pink-400/10' : 'bg-pink-400/5'
-                    }`}>
-                      <span className={`px-1 rounded text-[8px] tracking-widest ${
-                        z.strength === 'WHALE' ? 'bg-yellow-400 text-black' :
-                        z.strength === 'STRONG' ? 'bg-pink-500 text-black' : 'bg-pink-700 text-white'
-                      }`}>{z.strength}</span>
-                      <span className="text-pink-400 font-bold">{formatPrice(z.price)}</span>
-                      <span className="text-cyan-400">${formatVol(z.notional)}</span>
-                    </div>
-                  ))}
-                  {liquidityZones.shortZones.length === 0 && (
-                    <div className="text-[9px] text-gray-600 px-2 py-1">No strong resistances</div>
-                  )}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="text-center text-gray-500 py-8 text-xs tracking-widest">▸ INITIALIZING HEATMAP...</div>
-          )}
-        </div>
-      </div>
-
-      {/* ═══════════════ BUY/SELL PRESSURE ═══════════════ */}
-      <div className="border border-gray-800 rounded p-4 bg-gray-900/30 mb-6">
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ BUY/SELL PRESSURE · {selectedSymbol}</h2>
-          <span className={`text-[10px] font-bold tracking-widest ${pressureColor}`}>{pressureLabel}</span>
-        </div>
-        <div className="relative h-10 bg-gray-900 rounded overflow-hidden flex">
-          <div
-            className="bg-gradient-to-r from-green-500 to-green-400 flex items-center justify-end pr-3 transition-all duration-500 ease-out"
-            style={{ width: `${bidPct}%` }}
-          >
-            {bidPct > 15 && <span className="text-[10px] font-bold text-black tracking-widest">BIDS {bidPct.toFixed(0)}%</span>}
+            ) : (
+              <div className="text-center text-gray-600 py-10 text-[10px] tracking-[0.25em]">▸ INITIALIZING HEATMAP…</div>
+            )}
           </div>
-          <div
-            className="bg-gradient-to-l from-pink-500 to-pink-400 flex items-center justify-start pl-3 transition-all duration-500 ease-out"
-            style={{ width: `${askPct}%` }}
-          >
-            {askPct > 15 && <span className="text-[10px] font-bold text-black tracking-widest">ASKS {askPct.toFixed(0)}%</span>}
-          </div>
-        </div>
-        <div className="flex justify-between mt-2 text-[10px] text-gray-500 tracking-widest">
-          <span>BID ${depth ? formatVol(depth.bidNotional) : '—'}</span>
-          <span>ASK ${depth ? formatVol(depth.askNotional) : '—'}</span>
-        </div>
-      </div>
+        </section>
 
-      {/* ═══════════════ SIGNAL HISTORY ═══════════════ */}
-      <div className="border border-gray-800 rounded p-4 bg-gray-900/30 mb-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 pb-2 border-b border-gray-800 gap-2">
-          <h2 className="text-[10px] font-bold tracking-[0.3em] text-gray-400">▸ SIGNAL HISTORY · LIVE TRACKING</h2>
-          <div className="flex gap-3 text-[10px] flex-wrap">
-            <div><span className="text-gray-500 tracking-widest">TOTAL </span><span className="text-white font-bold">{signalLog.length}</span></div>
-            <div><span className="text-gray-500 tracking-widest">W/L </span><span className="text-green-400 font-bold">{wins}</span><span className="text-gray-500">/</span><span className="text-pink-400 font-bold">{losses}</span></div>
-            <div><span className="text-gray-500 tracking-widest">WIN RATE </span><span className={`font-bold ${winRate >= 50 ? 'text-green-400' : 'text-pink-400'}`}>{resolvedSignals.length > 0 ? winRate.toFixed(1) + '%' : '—'}</span></div>
-            <div><span className="text-gray-500 tracking-widest">AVG PnL </span><span className={`font-bold ${avgPnl >= 0 ? 'text-green-400' : 'text-pink-400'}`}>{resolvedSignals.length > 0 ? (avgPnl >= 0 ? '+' : '') + avgPnl.toFixed(3) + '%' : '—'}</span></div>
+        {/* ═══════════════ BUY/SELL PRESSURE ═══════════════ */}
+        <section className="border border-gray-800 rounded-sm bg-gray-900/30 p-3 mb-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-[9px] font-bold tracking-[0.3em] text-gray-500">▸ BUY/SELL PRESSURE · {selectedSymbol}</span>
+            <span className={`text-[9px] font-bold tracking-[0.25em] ${pressureColor}`}>{pressureLabel}</span>
           </div>
-        </div>
-
-        {signalLog.length > 0 ? (
-          <div className="space-y-1 text-xs max-h-80 overflow-y-auto">
-            <div className="grid grid-cols-7 gap-2 text-[9px] text-gray-500 tracking-widest border-b border-gray-800 pb-1 px-2">
-              <span>TIME</span><span>COIN</span><span>SIGNAL</span><span>CONF</span><span>ENTRY</span><span>RR</span><span className="text-right">OUTCOME</span>
+          <div className="relative h-7 bg-gray-950 rounded-sm overflow-hidden flex">
+            <div
+              className="bg-gradient-to-r from-green-600 to-green-400 flex items-center justify-end pr-2 transition-all duration-500 ease-out"
+              style={{ width: `${bidPct}%` }}
+            >
+              {bidPct > 15 && <span className="text-[9px] font-bold text-black tracking-[0.2em] tabular-nums">BIDS {bidPct.toFixed(0)}%</span>}
             </div>
-            {signalLog.map(s => {
-              const timeStr = new Date(s.timestamp).toLocaleTimeString().slice(0, 8);
-              const isWin = s.outcome === 'win';
-              const isLoss = s.outcome === 'loss';
-              const isPending = s.outcome === 'pending';
-              return (
-                <div key={s.id} className={`grid grid-cols-7 gap-2 px-2 py-1 rounded items-center text-[10px] ${
-                  isWin ? 'bg-green-500/10' : isLoss ? 'bg-pink-500/10' : 'bg-gray-900/50'
-                }`}>
-                  <span className="text-gray-400">{timeStr}</span>
-                  <span className="font-bold">{s.symbol.replace('USDT','')}</span>
-                  <span className={`font-bold ${s.direction === 'LONG' ? 'text-green-400' : 'text-pink-400'}`}>{s.direction}</span>
-                  <span className="text-cyan-400">{s.confidence}%</span>
-                  <span className="text-gray-300">{formatPrice(s.entryPrice)}</span>
-                  <span className="text-yellow-400">{s.rr.toFixed(1)}</span>
-                  <span className="text-right">
-                    {isPending ? (
-                      <span className="text-yellow-400">PENDING</span>
-                    ) : (
-                      <span className={`font-bold ${isWin ? 'text-green-400' : 'text-pink-400'}`}>
-                        {isWin ? '✓ ' : '✗ '}{(s.pnlPct! >= 0 ? '+' : '') + s.pnlPct!.toFixed(3) + '%'}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
+            <div
+              className="bg-gradient-to-l from-pink-600 to-pink-400 flex items-center justify-start pl-2 transition-all duration-500 ease-out"
+              style={{ width: `${askPct}%` }}
+            >
+              {askPct > 15 && <span className="text-[9px] font-bold text-black tracking-[0.2em] tabular-nums">ASKS {askPct.toFixed(0)}%</span>}
+            </div>
           </div>
-        ) : (
-          <div className="text-center text-gray-500 py-8 text-[10px] tracking-widest">
-            ▸ WAITING FOR HIGH-CONVICTION SIGNALS · 70%+ CONF · RR ≥ 1.5 · 5MIN COOLDOWN
+          <div className="flex justify-between mt-1.5 text-[9px] text-gray-600 tracking-widest tabular-nums">
+            <span>BID ${depth ? formatVol(depth.bidNotional) : '—'}</span>
+            <span>ASK ${depth ? formatVol(depth.askNotional) : '—'}</span>
           </div>
-        )}
-      </div>
+        </section>
 
-      {/* ═══════════════ FOOTER ═══════════════ */}
-      <footer className="mt-8 pt-4 border-t border-gray-800 text-center">
-        <div className="text-[9px] text-gray-600 tracking-[0.4em] mb-1">RAUF SIGNALS · BUILT BY ABDUL RAUF · KARACHI · v2.3 COMMAND</div>
-        <div className="text-[9px] text-yellow-400/60 tracking-widest">⚠ PERSONAL USE · NOT FINANCIAL ADVICE · BACKTEST PENDING</div>
-      </footer>
+        {/* ═══════════════ SIGNAL HISTORY ═══════════════ */}
+        <section className="border border-gray-800 rounded-sm bg-gray-900/30 mb-4">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center px-3 py-2 border-b border-gray-800 gap-2">
+            <span className="text-[9px] font-bold tracking-[0.3em] text-gray-500">▸ SIGNAL HISTORY · LIVE TRACKING</span>
+            <div className="flex gap-3 text-[10px] flex-wrap tabular-nums">
+              <div><span className="text-gray-600 tracking-widest">TOTAL </span><span className="text-white font-bold">{signalLog.length}</span></div>
+              <div><span className="text-gray-600 tracking-widest">W/L </span><span className="text-green-400 font-bold">{wins}</span><span className="text-gray-600">/</span><span className="text-pink-400 font-bold">{losses}</span></div>
+              <div><span className="text-gray-600 tracking-widest">WIN RATE </span><span className={`font-bold ${winRate >= 50 ? 'text-green-400' : 'text-pink-400'}`}>{resolvedSignals.length > 0 ? winRate.toFixed(1) + '%' : '—'}</span></div>
+              <div><span className="text-gray-600 tracking-widest">AVG PnL </span><span className={`font-bold ${avgPnl >= 0 ? 'text-green-400' : 'text-pink-400'}`}>{resolvedSignals.length > 0 ? (avgPnl >= 0 ? '+' : '') + avgPnl.toFixed(3) + '%' : '—'}</span></div>
+            </div>
+          </div>
+          {signalLog.length > 0 ? (
+            <div className="text-[10px] tabular-nums max-h-80 overflow-y-auto">
+              <div className="grid grid-cols-7 gap-2 text-[8px] text-gray-600 tracking-[0.25em] border-b border-gray-800 px-3 py-1.5 bg-black/30 sticky top-0">
+                <span>TIME</span><span>COIN</span><span>SIGNAL</span><span>CONF</span><span>ENTRY</span><span>RR</span><span className="text-right">OUTCOME</span>
+              </div>
+              {signalLog.map(s => {
+                const timeStr = new Date(s.timestamp).toLocaleTimeString().slice(0, 8);
+                const isWin = s.outcome === 'win';
+                const isLoss = s.outcome === 'loss';
+                const isPending = s.outcome === 'pending';
+                return (
+                  <div key={s.id} className={`grid grid-cols-7 gap-2 px-3 py-1 items-center text-[10px] border-b border-gray-900/60 ${
+                    isWin ? 'bg-green-500/[0.05]' : isLoss ? 'bg-pink-500/[0.05]' : ''
+                  }`}>
+                    <span className="text-gray-400">{timeStr}</span>
+                    <span className="font-bold text-white">{s.symbol.replace('USDT','')}</span>
+                    <span className={`font-bold ${s.direction === 'LONG' ? 'text-green-400' : 'text-pink-400'}`}>{s.direction}</span>
+                    <span className="text-cyan-400">{s.confidence}%</span>
+                    <span className="text-gray-300">{formatPrice(s.entryPrice)}</span>
+                    <span className="text-yellow-400">{s.rr.toFixed(1)}</span>
+                    <span className="text-right">
+                      {isPending ? (
+                        <span className="text-yellow-400">PENDING</span>
+                      ) : (
+                        <span className={`font-bold ${isWin ? 'text-green-400' : 'text-pink-400'}`}>
+                          {isWin ? '✓ ' : '✗ '}{(s.pnlPct! >= 0 ? '+' : '') + s.pnlPct!.toFixed(3) + '%'}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center text-gray-600 py-8 text-[10px] tracking-[0.25em]">
+              ▸ WAITING FOR HIGH-CONVICTION SIGNALS · 70%+ CONF · RR ≥ 1.5 · 5MIN COOLDOWN
+            </div>
+          )}
+        </section>
+
+        {/* ═══════════════ FOOTER ═══════════════ */}
+        <footer className="pt-3 border-t border-gray-800 text-center">
+          <div className="text-[8px] text-gray-700 tracking-[0.4em] mb-1">RAUF · SIGNALS · BUILT BY ABDUL RAUF · KARACHI · v2.3 TERMINAL</div>
+          <div className="text-[8px] text-yellow-400/50 tracking-widest">⚠ PERSONAL USE · NOT FINANCIAL ADVICE · BACKTEST PENDING</div>
+        </footer>
+      </div>
     </main>
   );
 }
