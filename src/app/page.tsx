@@ -565,7 +565,6 @@ export default function Home() {
   const hotSignals = signalLog.filter(s => s.outcome === 'pending').slice(0, 3);
 
   return (
-  return (
     <main className="min-h-screen bg-black text-white p-4 md:p-6 font-mono overflow-x-hidden">
       {/* ═══════════════ HEADER ═══════════════ */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 pb-4 border-b border-cyan-500/30 gap-3">
